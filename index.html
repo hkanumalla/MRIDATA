@@ -371,8 +371,11 @@ function renderAudit(rows){
 function showCopied(){ const c=document.getElementById('copied'); c.style.display='inline'; setTimeout(()=>c.style.display='none',1600); }
 async function copyOut(){
   const text=document.getElementById('output').textContent;
-  const esc=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const html=`<div style="font-family:Arial,Helvetica,sans-serif;color:#000000;white-space:pre-wrap;">${esc}</div>`;
+  const escLine=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const st='margin:0;font-family:Arial,Helvetica,sans-serif;color:#000000;white-space:pre-wrap;';
+  const html=text.split('\n').map(line=>
+    line==='' ? `<div style="${st}"><br></div>` : `<div style="${st}">${escLine(line)}</div>`
+  ).join('');
   try{
     await navigator.clipboard.write([new ClipboardItem({
       'text/html': new Blob([html],{type:'text/html'}),
