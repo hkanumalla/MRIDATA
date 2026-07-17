@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cardiac MRI Z-Score Report Generator</title>
+<style>
+  :root{
+    --bg:#f4f6f9; --card:#ffffff; --ink:#1c2733; --muted:#5b6b7b;
+    --line:#dbe2ea; --accent:#0a6cbc; --accent-dark:#075396;
+    --ok:#1a7f4b; --warn:#b25a00; --bad:#c0392b; --code:#0f1b26;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg);color:var(--ink);line-height:1.45}
+  header{background:linear-gradient(135deg,var(--accent),var(--accent-dark));color:#fff;padding:20px 24px}
+  header h1{margin:0;font-size:20px;font-weight:650;letter-spacing:.2px}
+  header p{margin:4px 0 0;font-size:13px;opacity:.9}
+  header .credit{margin:10px 0 0;font-size:12.5px;font-weight:600;opacity:.95;letter-spacing:.2px}
+  header .version{margin:2px 0 0;font-size:11px;font-weight:400;font-style:italic;opacity:.85}
+  .wrap{max-width:1180px;margin:0 auto;padding:20px 24px 60px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  @media(max-width:900px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;box-shadow:0 1px 2px rgba(16,40,64,.04)}
+  .card h2{margin:0 0 12px;font-size:14px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+  .controls{display:flex;flex-wrap:wrap;gap:18px;margin-bottom:16px}
+  .ctl{display:flex;flex-direction:column;gap:6px}
+  .ctl label{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{border:0;background:#fff;padding:8px 14px;font-size:13px;cursor:pointer;color:var(--ink);font-weight:500}
+  .seg button+button{border-left:1px solid var(--line)}
+  .seg button.on{background:var(--accent);color:#fff}
+  textarea{width:100%;min-height:360px;resize:vertical;border:1px solid var(--line);border-radius:8px;
+    padding:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.5;color:var(--code)}
+  .btnrow{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
+  .btn{border:0;border-radius:8px;padding:10px 18px;font-size:14px;font-weight:600;cursor:pointer}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-primary:hover{background:var(--accent-dark)}
+  .btn-ghost{background:#eef2f7;color:var(--ink)}
+  .btn-ghost:hover{background:#e2e8f0}
+  pre.output{white-space:pre-wrap;background:#0f1b26;color:#e8eef4;border-radius:8px;padding:16px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.55;min-height:360px;margin:0;overflow:auto}
+  table.audit{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
+  table.audit th,table.audit td{border:1px solid var(--line);padding:6px 8px;text-align:right}
+  table.audit th{background:#f0f4f8;color:var(--muted);font-weight:600;text-align:right}
+  table.audit td:first-child,table.audit th:first-child{text-align:left}
+  .note{font-size:12px;color:var(--muted);margin-top:10px}
+  .banner{background:#eaf4fd;border:1px solid #bfdcf5;color:#0a4f86;border-radius:8px;padding:10px 12px;font-size:12.5px;margin-bottom:16px}
+  .miss{background:#fff6e6;border:1px solid #f0d8a8;color:#8a4b00;border-radius:8px;padding:8px 12px;font-size:12.5px;margin-top:12px;display:none}
+  .qpnote{border-radius:8px;padding:8px 12px;font-size:12.5px;margin-top:12px}
+  .qpnote.ok{background:#eef7f0;border:1px solid #bfe3ca;color:#1a6b3d}
+  .qpnote.warn{background:#fdeceb;border:1px solid #f2c0bb;color:#a03026}
+  .copied{color:var(--ok);font-size:13px;font-weight:600;align-self:center;display:none}
+  #assignCard{border-color:#f0d8a8;background:#fffdf7}
+  .assignrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 0;border-top:1px dashed var(--line)}
+  .assignrow:first-of-type{border-top:0}
+  .vname{font-weight:600;min-width:180px}
+  .assignrow select{padding:7px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;background:#fff}
+  .vsummary{font-size:12px;color:var(--muted)}
+  .unset select{border-color:var(--warn);box-shadow:0 0 0 2px rgba(178,90,0,.12)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Cardiac MRI Z-Score Report Generator</h1>
+  <p>Paste the MRI software output &rarr; pick band &amp; sex &rarr; assign any unlabeled flows &rarr; get a finished report. Runs entirely in your browser &mdash; no data leaves this computer.</p>
+  <p class="credit">Created by Harsha Kanumalla, MD</p>
+  <p class="version">Version 1</p>
+</header>
+
+<div class="wrap">
+  <div class="banner">
+    Reads the SAX3D LV/RV function export and the Flow Analysis export in one paste. Aorta and Pulmonary Artery flows auto-map;
+    any ROI not clearly labeled (e.g. &ldquo;Flow ROI 4 Contour&rdquo;) prompts you to assign it. Total Qp and QpR:QpL ratios are
+    computed from the branch flows. Z-score math and normative constants come straight from the Bulletz sheet.
+  </div>
+
+  <div class="controls">
+    <div class="ctl">
+      <label>Age band</label>
+      <div class="seg" id="band">
+        <button data-v="adult" class="on">Adult (20&ndash;65)</button>
+        <button data-v="ped">Pediatric (8&ndash;17)</button>
+      </div>
+    </div>
+    <div class="ctl">
+      <label>Sex</label>
+      <div class="seg" id="sex">
+        <button data-v="F" class="on">Female</button>
+        <button data-v="M">Male</button>
+      </div>
+    </div>
+    <div class="ctl">
+      <label>Z rounding</label>
+      <div class="seg" id="round">
+        <button data-v="round" class="on">Round to nearest .1</button>
+        <button data-v="none">Don't round</button>
+      </div>
+    </div>
+    <div class="ctl">
+      <label>Regurg fraction</label>
+      <div class="seg" id="rf">
+        <button data-v="exact" class="on">As exported</button>
+        <button data-v="round">Round to whole %</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>1 &middot; Paste raw MRI data</h2>
+      <textarea id="input" spellcheck="false" placeholder="Paste the copied MRI software output here (LV + RV function, and Flow Analysis blocks)..."></textarea>
+      <div class="btnrow">
+        <button class="btn btn-primary" onclick="generate()">Generate report</button>
+        <button class="btn btn-ghost" onclick="loadSample()">Load sample</button>
+        <button class="btn btn-ghost" onclick="clearAll()">Clear</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2 &middot; Finished report</h2>
+      <pre class="output" id="output">Your generated report will appear here.</pre>
+      <div class="miss" id="miss"></div>
+      <div class="qpnote" id="qpNote" style="display:none"></div>
+      <div class="btnrow">
+        <button class="btn btn-primary" onclick="copyOut()">Copy report</button>
+        <span class="copied" id="copied">Copied &#10003;</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="assignCard" style="display:none;margin-top:20px"></div>
+
+  <div class="card" style="margin-top:20px">
+    <h2>Z-score audit</h2>
+    <div id="auditWrap"><p class="note">Generate a report to see the Z-score calculations.</p></div>
+    <p class="note">Z = (indexed value &minus; mean) / SD. LVEDV, LV mass and RVEDV use the BSA-indexed value; LV&nbsp;EF and RVEF use the percentage. Normative mean &amp; SD are selected automatically from the band &amp; sex chosen above.</p>
+  </div>
+</div>
+
+<script>
+/* ---------- Normative constants (from Bulletz sheet) ---------- */
+const NORM = {
+  adult: {
+    M: { LVEF:{m:64.2,s:4.6}, LVEDVi:{m:82.3,s:14.7}, LVmassi:{m:64.7,s:9.3}, RVEF:{m:55.1,s:3.7}, RVEDVi:{m:86.2,s:14.1} },
+    F: { LVEF:{m:64,s:4.9},   LVEDVi:{m:77.7,s:10.8}, LVmassi:{m:52,s:7.4},  RVEF:{m:59.8,s:5},  RVEDVi:{m:75.2,s:13.8} }
+  },
+  ped: {
+    M: { LVEF:{m:69,s:5}, LVEDVi:{m:79,s:11}, LVmassi:{m:72,s:13}, RVEF:{m:65,s:5}, RVEDVi:{m:86,s:12} },
+    F: { LVEF:{m:69,s:5}, LVEDVi:{m:71,s:8},  LVmassi:{m:58,s:9},  RVEF:{m:65,s:5}, RVEDVi:{m:73,s:9} }
+  }
+};
+
+/* ---------- UI state ---------- */
+const state = { band:'adult', sex:'F', round:'round', rf:'exact' };
+const assign = {};   /* vessel name -> slot chosen in dropdown (persists across regenerates) */
+
+function wireSeg(id,key){
+  const box=document.getElementById(id);
+  box.querySelectorAll('button').forEach(b=>{
+    b.onclick=()=>{ box.querySelectorAll('button').forEach(x=>x.classList.remove('on'));
+      b.classList.add('on'); state[key]=b.dataset.v;
+      if(document.getElementById('input').value.trim()) generate(); };
+  });
+}
+wireSeg('band','band'); wireSeg('sex','sex'); wireSeg('round','round'); wireSeg('rf','rf');
+
+/* ---------- helpers ---------- */
+function firstNum(str){ const m=(str||'').match(/-?\d+(?:\.\d+)?/); return m?parseFloat(m[0]):null; }
+function fmtZ(x){
+  if(state.round==='none'){ let v=Math.round(x*1000)/1000; if(Object.is(v,-0))v=0; return ''+v; }
+  let v=Math.round(x*10)/10; if(Object.is(v,-0))v=0; return v.toFixed(1);
+}
+function calcZ(key,val){ const n=NORM[state.band][state.sex][key]; return { z:(val-n.m)/n.s, mean:n.m, sd:n.s }; }
+function num(x){ return (x==null||isNaN(x))?'':(''+x); }
+
+/* ============================================================
+   VENTRICULAR PARSER  (SAX3D: label on a line, value on the next)
+   ============================================================ */
+const RAW_LV = {
+  'edv/bsa':'LVEDVi', 'esv/bsa':'LVESVi', 'sv/bsa':'LVSVi',
+  'myo mass/bsa (diast)':'LVmassi', 'myo mass/bsa':'LVmassi',
+  'edv':'LVEDVa', 'esv':'LVESVa', 'sv':'LVSVa', 'ef':'LVEF',
+  'co':'LVCO', 'ci':'LVCI', 'myo mass (diast)':'LVmassa', 'myo mass':'LVmassa'
+};
+const RAW_RV = {
+  'rvedv/bsa':'RVEDVi', 'rvesv/bsa':'RVESVi', 'rvsv/bsa':'RVSVi',
+  'rvedv':'RVEDVa', 'rvesv':'RVESVa', 'rvsv':'RVSVa', 'rvef':'RVEF',
+  'rvco':'RVCO', 'rvci':'RVCI'
+};
+function parseVent(lines){
+  const M={}; let section=null;
+  const nextNum=idx=>{ let j=idx+1; while(j<lines.length&&lines[j]==='')j++; return firstNum(lines[j]); };
+  for(let i=0;i<lines.length;i++){
+    const line=lines[i]; if(!line) continue; const low=line.toLowerCase();
+    if(low.includes('lv function')){ section='LV'; continue; }
+    if(low.includes('rv function')){ section='RV'; continue; }
+    if(low.startsWith('flow analysis')){ section=null; continue; }
+    if(line.endsWith(':')){
+      let key=low.slice(0,-1).trim();
+      if(key.includes('/h')) continue;                       /* skip height-indexed */
+      let field=(section==='RV')?RAW_RV[key]:(section==='LV'?RAW_LV[key]:null);
+      if(!field && section===null && RAW_RV[key]) field=RAW_RV[key];
+      if(!field) continue;
+      const v=nextNum(i);
+      if(v!=null && !(field in M)) M[field]=v;
+    }
+  }
+  return M;
+}
+
+/* ============================================================
+   FLOW PARSER  (Flow Analysis blocks)
+   ============================================================ */
+function parseFlows(lines){
+  const blocks=[]; let cur=null;
+  const nextNum=idx=>{ let j=idx+1; while(j<lines.length&&lines[j]==='')j++; return firstNum(lines[j]); };
+  for(let i=0;i<lines.length;i++){
+    const line=lines[i]; if(!line) continue; const low=line.toLowerCase();
+    if(low.startsWith('flow analysis')){
+      cur={ name:line.replace(/flow analysis/i,'').trim(), total:null, eff:null, regurg:null };
+      blocks.push(cur); continue;
+    }
+    if(!cur) continue;
+    if(low.startsWith('vol/min (effective)')) cur.eff=nextNum(i);
+    else if(low.startsWith('vol/min'))        cur.total=nextNum(i);
+    else if(low.startsWith('regurgitation fraction')) cur.regurg=nextNum(i);
+  }
+  return blocks;
+}
+function autoSlot(name){
+  const n=name.toLowerCase();
+  if(n.includes('aorta')||n.includes('aortic')) return 'AO';
+  if(n.includes('right pulmonary')||n.includes('rpa')) return 'RPA';
+  if(n.includes('left pulmonary')||n.includes('lpa')) return 'LPA';
+  if(n.includes('main pulmonary')||n.includes('pulmonary artery')||n.includes('mpa')) return 'MPA';
+  return null;
+}
+
+/* ---------- report builder ---------- */
+function generate(){
+  const raw=document.getElementById('input').value;
+  if(!raw.trim()){ document.getElementById('output').textContent='Paste the MRI data first.'; return; }
+  const lines=raw.split(/\r?\n/).map(s=>s.trim());
+  const M=parseVent(lines);
+  const blocks=parseFlows(lines);
+
+  /* map flow blocks to slots */
+  const slots={}; const ambiguous=[];
+  blocks.forEach(v=>{
+    let slot=autoSlot(v.name);
+    if(slot===null){ ambiguous.push(v); slot=assign[v.name]||null; }
+    if(slot && slot!=='ignore') slots[slot]=v;
+  });
+  renderAssign(ambiguous);
+
+  const audit=[]; const missing=[]; const L=[];
+
+  function zPair(label,absK,idxK,zKey){
+    const a=M[absK], b=M[idxK];
+    let s=`${label}: ${num(a)}/${num(b)}`;
+    if(b!=null){ const c=calcZ(zKey,b); const zs=fmtZ(c.z); audit.push([label,b,c.mean,c.sd,c.z,zs]);
+      s+=`  (z: ${zs}; mean +/- SD: ${c.mean}+/-${c.sd})`; }
+    else missing.push(label+' (indexed value)');
+    return s;
+  }
+  function pairOnly(label,absK,idxK){ return `${label}: ${num(M[absK])}/${num(M[idxK])}`; }
+  function ef(label,key,zKey){
+    const v=M[key]; let s=`${label}: ${num(v)}`;
+    if(v!=null){ const c=calcZ(zKey,v); const zs=fmtZ(c.z); audit.push([label,v,c.mean,c.sd,c.z,zs]);
+      s+=`  (z: ${zs}; mean +/- SD: ${c.mean} +/- ${c.sd})`; }
+    else missing.push(label);
+    return s;
+  }
+  function one(label,key){ const v=M[key]; if(v==null) missing.push(label); return `${label}: ${num(v)}`; }
+
+  const fpair=v=> (v&&v.total!=null)?`${num(v.total)}/${num(v.eff)}`:'';
+  const freg=v=>{ if(!v||v.regurg==null) return ''; return state.rf==='round'? String(Math.round(v.regurg)) : num(v.regurg); };
+  const ratio=(a,b)=>{ if(a==null||b==null) return ''; const s=a+b; if(!s) return ''; const r=Math.round(a/s*100); return `${r}:${100-r}%`; };
+  const rpaT=slots.RPA?slots.RPA.total:null, lpaT=slots.LPA?slots.LPA.total:null;
+  const rpaE=slots.RPA?slots.RPA.eff:null,   lpaE=slots.LPA?slots.LPA.eff:null;
+  const mpaT=slots.MPA?slots.MPA.total:null;
+  const totQp=(rpaT!=null&&lpaT!=null)?(rpaT+lpaT).toFixed(2):'';
+
+  L.push('Ventricular Data:');
+  L.push(zPair('LVEDV (ml)/ (Indexed to BSA)','LVEDVa','LVEDVi','LVEDVi'));
+  L.push(pairOnly('LVESV (ml)/ (Indexed to BSA)','LVESVa','LVESVi'));
+  L.push(pairOnly('LVSV (ml)/ (Indexed to BSA)','LVSVa','LVSVi'));
+  L.push(ef('LV EF (%)','LVEF','LVEF'));
+  L.push(one('LV CO (l/min)','LVCO'));
+  L.push(one('LV CI (l/min/m2)','LVCI'));
+  L.push(zPair('LV mass (gm)/ (Indexed to BSA)','LVmassa','LVmassi','LVmassi'));
+  L.push('');
+  L.push(zPair('RVEDV (ml)/ (Indexed to BSA)','RVEDVa','RVEDVi','RVEDVi'));
+  L.push(pairOnly('RVESV (ml)/ (Indexed to BSA)','RVESVa','RVESVi'));
+  L.push(pairOnly('RVSV (ml)/ (Indexed to BSA)','RVSVa','RVSVi'));
+  L.push(ef('RVEF (%)','RVEF','RVEF'));
+  L.push(one('RV CO (l/min)','RVCO'));
+  L.push(one('RV CI (l/min/m2)','RVCI'));
+  L.push('');
+  L.push('Flow Data');
+  L.push(`Aortic root (L/min) (total/effective): ${fpair(slots.AO)}`);
+  L.push(`Main Pulmonary Artery (L/min) (total/effective): ${fpair(slots.MPA)}`);
+  L.push(`Right Pulmonary Artery (L/min) (total/effective): ${fpair(slots.RPA)}`);
+  L.push(`Left Pulmonary Artery (L/min) (total/effective): ${fpair(slots.LPA)}`);
+  L.push(`Total Qp based on QpR+QpL = ${totQp}`);
+  L.push(`QpR:QpL based on total flows ${ratio(rpaT,lpaT)}`);
+  L.push(`QpR:QpL based on effective flows ${ratio(rpaE,lpaE)}`);
+  L.push('');
+  L.push('Flow Fractions');
+  L.push(`Pulmonary Regurgitation Fraction (%): ${freg(slots.MPA)}`);
+  L.push(`Aortic Regurgitant Fraction (%): ${freg(slots.AO)}`);
+  L.push(`RPA Regurgitant Fraction (%): ${freg(slots.RPA)}`);
+  L.push(`LPA Regurgitant Fraction (%): ${freg(slots.LPA)}`);
+
+  document.getElementById('output').textContent=L.join('\n');
+  renderAudit(audit);
+
+  const missBox=document.getElementById('miss');
+  const ventMiss=missing.filter(x=>!/Flow|Regurg|Pulmonary Artery|Aortic root|Qp/.test(x));
+  if(ventMiss.length){ missBox.style.display='block';
+    missBox.innerHTML='&#9888; Not found in the pasted data: '+ventMiss.join(', ')+'. Check the labels or paste the missing section.'; }
+  else missBox.style.display='none';
+
+  /* Qp sanity check: RPA + LPA should roughly equal Main PA flow */
+  const qp=document.getElementById('qpNote');
+  if(rpaT!=null && lpaT!=null && mpaT!=null){
+    const sum=rpaT+lpaT, diff=sum-mpaT, pct=mpaT?Math.abs(diff/mpaT*100):0;
+    const warn=pct>10;
+    qp.className='qpnote '+(warn?'warn':'ok');
+    qp.style.display='block';
+    qp.innerHTML=(warn?'&#9888; ':'&#10003; ')+
+      `Qp check: RPA + LPA = ${sum.toFixed(2)} vs Main PA = ${mpaT.toFixed(2)} L/min `+
+      `(${pct.toFixed(0)}% difference).`+(warn?' Branch flows and Main PA disagree &mdash; verify contours.':'');
+  } else qp.style.display='none';
+}
+
+function renderAssign(ambiguous){
+  const card=document.getElementById('assignCard');
+  if(!ambiguous.length){ card.style.display='none'; card.innerHTML=''; return; }
+  let h='<h2>Assign unlabeled flows</h2><p class="note">These ROIs aren’t labeled as PA or Aorta. Choose which report line each belongs to (or Ignore).</p>';
+  ambiguous.forEach(v=>{
+    const cur=assign[v.name]||'';
+    const unset=cur?'':' unset';
+    h+=`<div class="assignrow${unset}"><span class="vname">${v.name}</span>`+
+       `<select data-name="${encodeURIComponent(v.name)}" onchange="onAssign(this)">`+
+       `<option value="">— select —</option>`+
+       `<option value="MPA"${cur==='MPA'?' selected':''}>Main Pulmonary Artery</option>`+
+       `<option value="AO"${cur==='AO'?' selected':''}>Aortic root</option>`+
+       `<option value="RPA"${cur==='RPA'?' selected':''}>Right Pulmonary Artery (RPA)</option>`+
+       `<option value="LPA"${cur==='LPA'?' selected':''}>Left Pulmonary Artery (LPA)</option>`+
+       `<option value="ignore"${cur==='ignore'?' selected':''}>Ignore</option>`+
+       `</select>`+
+       `<span class="vsummary">total ${num(v.total)} / eff ${num(v.eff)} l/min &middot; RF ${num(v.regurg)}%</span></div>`;
+  });
+  card.innerHTML=h; card.style.display='block';
+}
+function onAssign(sel){ assign[decodeURIComponent(sel.dataset.name)]=sel.value; generate(); }
+
+function renderAudit(rows){
+  const bandLbl=state.band==='adult'?'Adult 20–65':'Pediatric 8–17';
+  const sexLbl=state.sex==='F'?'Female':'Male';
+  if(!rows.length){ document.getElementById('auditWrap').innerHTML='<p class="note">No Z-score measurements found in the pasted data.</p>'; return; }
+  let h=`<p class="note">Band: <b>${bandLbl}</b> &middot; Sex: <b>${sexLbl}</b> &middot; Rounding: <b>${state.round==='none'?"Don't round":'Nearest .1'}</b></p>`;
+  h+='<table class="audit"><tr><th>Measurement</th><th>Indexed value</th><th>Mean</th><th>SD</th><th>Exact Z</th><th>Reported Z</th></tr>';
+  rows.forEach(r=>{ h+=`<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td><td>${r[4].toFixed(3)}</td><td><b>${r[5]}</b></td></tr>`; });
+  h+='</table>';
+  document.getElementById('auditWrap').innerHTML=h;
+}
+
+function copyOut(){
+  const t=document.getElementById('output').textContent;
+  navigator.clipboard.writeText(t).then(()=>{ const c=document.getElementById('copied'); c.style.display='inline'; setTimeout(()=>c.style.display='none',1600); });
+}
+function clearAll(){ document.getElementById('input').value=''; for(const k in assign) delete assign[k];
+  document.getElementById('assignCard').style.display='none'; }
+
+const SAMPLE=`SAX3D Stack LV Function
+EDV:
+139.38 ml
+ESV:
+70.88 ml
+SV:
+68.50 ml
+EF:
+49.15 %
+CO:
+5.02 l/min
+CI:
+3.13 l/min/m²
+Myo Mass (Diast):
+66.03 g
+EDV/BSA:
+86.85 ml/m²
+ESV/BSA:
+44.17 ml/m²
+SV/BSA:
+42.68 ml/m²
+Myo Mass/BSA (Diast):
+41.14 g/m²
+SAX3D Stack RV Function
+RVEDV:
+93.94 ml
+RVESV:
+49.16 ml
+RVSV:
+44.78 ml
+RVEF:
+47.67 %
+RVCO:
+3.28 l/min
+RVCI:
+2.04 l/min/m²
+RVEDV/BSA:
+58.54 ml/m²
+RVESV/BSA:
+30.63 ml/m²
+RVSV/BSA:
+27.90 ml/m²
+Flow Analysis Flow ROI 4 Contour
+Vol/min:
+1.45 l/min
+Vol/min (effective):
+1.38 l/min
+Regurgitation Fraction:
+5.05 %
+Flow Analysis Aorta
+Vol/min:
+3.48 l/min
+Vol/min (effective):
+3.35 l/min
+Regurgitation Fraction:
+3.60 %
+Flow Analysis Flow ROI 3 Contour
+Vol/min:
+2.21 l/min
+Vol/min (effective):
+2.14 l/min
+Regurgitation Fraction:
+2.90 %
+Flow Analysis Pulmonary Artery
+Vol/min:
+3.39 l/min
+Vol/min (effective):
+3.32 l/min
+Regurgitation Fraction:
+2.11 %`;
+function loadSample(){ for(const k in assign) delete assign[k]; document.getElementById('input').value=SAMPLE; generate(); }
+</script>
+</body>
+</html>
