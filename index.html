@@ -306,8 +306,11 @@ function generate(skipAssign){
   const ratio=(a,b)=>{ if(a==null||b==null) return ''; const s=a+b; if(!s) return ''; const r=Math.round(a/s*100); return `${r}:${100-r}%`; };
   const rpaT=slots.RPA?slots.RPA.total:null, lpaT=slots.LPA?slots.LPA.total:null;
   const rpaE=slots.RPA?slots.RPA.eff:null,   lpaE=slots.LPA?slots.LPA.eff:null;
-  const mpaT=slots.MPA?slots.MPA.total:null;
+  const mpaT=slots.MPA?slots.MPA.total:null,  mpaE=slots.MPA?slots.MPA.eff:null;
+  const aoT =slots.AO ?slots.AO.total:null,   aoE =slots.AO ?slots.AO.eff:null;
   const totQp=(rpaT!=null&&lpaT!=null)?(rpaT+lpaT).toFixed(2):'';
+  const qpqs=(a,b)=> (a!=null&&b!=null&&b!==0)?`${(a/b).toFixed(2)}:1`:'';
+  const qpqsT=qpqs(mpaT,aoT);
 
   L.push('Ventricular Data:');
   L.push(zPair('LVEDV (ml)/ (Indexed to BSA)','LVEDVa','LVEDVi','LVEDVi'));
@@ -334,6 +337,7 @@ function generate(skipAssign){
   L.push(`Total Qp based on QpR+QpL = ${totQp}`);
   L.push(`QpR:QpL based on total flows ${ratio(rpaT,lpaT)}`);
   L.push(`QpR:QpL based on effective flows ${ratio(rpaE,lpaE)}`);
+  L.push(`Qp:Qs based on total flows (MPA/Aorta) = ${qpqsT}`);
   L.push('');
   L.push('Flow Fractions');
   L.push(`Pulmonary Regurgitation Fraction (%): ${freg(slots.MPA)}`);
