@@ -60,16 +60,17 @@
   .assignrow select{padding:7px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;background:#fff}
   .vsummary{font-size:12px;color:var(--muted)}
   .unset select{border-color:var(--warn);box-shadow:0 0 0 2px rgba(178,90,0,.12)}
+  .otherbox{padding:7px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;min-width:200px}
+  .unset .otherbox{border-color:var(--warn);box-shadow:0 0 0 2px rgba(178,90,0,.12)}
 </style>
 </head>
 <body>
 <header>
   <h1>Cardiac MRI Z-Score Report Generator</h1>
   <ol class="steps">
-    <li>Highlight entire table in CVI for SAX function and copy.</li>
-    <li>Paste entire table into box.</li>
-    <li>Highlight flow table for all flows and copy.</li>
-    <li>Paste into box.</li>
+    <li>Highlight entire table in CVI for SAX function and copy and paste into box.</li>
+    <li>Highlight each individual flow table and copy and paste into box.</li>
+    <li>Click generate report.</li>
   </ol>
   <p class="credit">Created by Harsha Kanumalla, MD</p>
   <p class="version">Version 1</p>
@@ -159,7 +160,8 @@ const NORM = {
 
 /* ---------- UI state ---------- */
 const state = { band:'ped', sex:'F', round:'round', rf:'exact' };
-const assign = {};   /* vessel name -> slot chosen in dropdown (persists across regenerates) */
+const assign = {};       /* vessel name -> slot chosen in dropdown (persists across regenerates) */
+const assignOther = {};  /* vessel name -> custom label typed when "Other" is chosen */
 
 function wireSeg(id,key){
   const box=document.getElementById(id);
@@ -244,7 +246,7 @@ function autoSlot(name){
 }
 
 /* ---------- report builder ---------- */
-function generate(){
+function generate(skipAssign){
   const raw=document.getElementById('input').value;
   if(!raw.trim()){ document.getElementById('output').textContent='Paste the MRI data first.'; return; }
   const lines=raw.split(/\r?\n/).map(s=>s.trim());
@@ -252,21 +254,27 @@ function generate(){
   const blocks=parseFlows(lines);
 
   /* map flow blocks to slots */
-  const slots={}; const ambiguous=[];
+  const slots={}; const ambiguous=[]; const customFlows=[];
   blocks.forEach(v=>{
     let slot=autoSlot(v.name);
     if(slot===null){ ambiguous.push(v); slot=assign[v.name]||null; }
-    if(slot && slot!=='ignore') slots[slot]=v;
+    if(slot==='other'){ const lbl=(assignOther[v.name]||'').trim(); if(lbl) customFlows.push({label:lbl, v}); }
+    else if(slot && slot!=='ignore') slots[slot]=v;
   });
-  renderAssign(ambiguous);
+  if(!skipAssign) renderAssign(ambiguous);
 
-  /* block generation until every unlabeled ROI is assigned (Ignore counts as a choice) */
-  const unassigned=ambiguous.filter(v=>!assign[v.name]);
+  /* block generation until every unlabeled ROI is assigned (Ignore counts as a choice; Other needs a label) */
+  const unassigned=ambiguous.filter(v=>{
+    const s=assign[v.name];
+    if(!s) return true;
+    if(s==='other' && !(assignOther[v.name]||'').trim()) return true;
+    return false;
+  });
   if(unassigned.length){
     document.getElementById('output').textContent=
       '⚠ You must assign every unlabeled flow before generating.\n\n'+
       'Still needs a choice: '+unassigned.map(v=>v.name).join(', ')+'\n\n'+
-      'Use the “Assign unlabeled flows” section below to choose which report line each belongs to (or Ignore), then press Generate report again.';
+      'Use the “Assign unlabeled flows” section below to choose which report line each belongs to (Main PA, Aorta, RPA, LPA, Other with a label, or Ignore), then press Generate report again.';
     document.getElementById('miss').style.display='none';
     document.getElementById('qpNote').style.display='none';
     document.getElementById('auditWrap').innerHTML='<p class="note">Report not generated — assign the flows above first.</p>';
@@ -322,6 +330,7 @@ function generate(){
   L.push(`Main Pulmonary Artery (L/min) (total/effective): ${fpair(slots.MPA)}`);
   L.push(`Right Pulmonary Artery (L/min) (total/effective): ${fpair(slots.RPA)}`);
   L.push(`Left Pulmonary Artery (L/min) (total/effective): ${fpair(slots.LPA)}`);
+  customFlows.forEach(c=>L.push(`${c.label} (L/min) (total/effective): ${fpair(c.v)}`));
   L.push(`Total Qp based on QpR+QpL = ${totQp}`);
   L.push(`QpR:QpL based on total flows ${ratio(rpaT,lpaT)}`);
   L.push(`QpR:QpL based on effective flows ${ratio(rpaE,lpaE)}`);
@@ -331,6 +340,7 @@ function generate(){
   L.push(`Aortic Regurgitant Fraction (%): ${freg(slots.AO)}`);
   L.push(`RPA Regurgitant Fraction (%): ${freg(slots.RPA)}`);
   L.push(`LPA Regurgitant Fraction (%): ${freg(slots.LPA)}`);
+  customFlows.forEach(c=>L.push(`${c.label} Regurgitant Fraction (%): ${freg(c.v)}`));
 
   document.getElementById('output').textContent=L.join('\n');
   renderAudit(audit);
@@ -357,24 +367,32 @@ function generate(){
 function renderAssign(ambiguous){
   const card=document.getElementById('assignCard');
   if(!ambiguous.length){ card.style.display='none'; card.innerHTML=''; return; }
-  let h='<h2>Assign unlabeled flows</h2><p class="note">These ROIs aren’t labeled as PA or Aorta. Choose which report line each belongs to (or Ignore).</p>';
+  let h='<h2>Assign unlabeled flows</h2><p class="note">These ROIs aren’t labeled as PA or Aorta. Choose which report line each belongs to. Pick <b>Other</b> to add a custom flow with your own label, or <b>Ignore</b> to leave it out.</p>';
   ambiguous.forEach(v=>{
     const cur=assign[v.name]||'';
-    const unset=cur?'':' unset';
+    const needsLabel = cur==='other' && !(assignOther[v.name]||'').trim();
+    const unset=(!cur||needsLabel)?' unset':'';
+    const enc=encodeURIComponent(v.name);
     h+=`<div class="assignrow${unset}"><span class="vname">${v.name}</span>`+
-       `<select data-name="${encodeURIComponent(v.name)}" onchange="onAssign(this)">`+
+       `<select data-name="${enc}" onchange="onAssign(this)">`+
        `<option value="">— select —</option>`+
        `<option value="MPA"${cur==='MPA'?' selected':''}>Main Pulmonary Artery</option>`+
        `<option value="AO"${cur==='AO'?' selected':''}>Aortic root</option>`+
        `<option value="RPA"${cur==='RPA'?' selected':''}>Right Pulmonary Artery (RPA)</option>`+
        `<option value="LPA"${cur==='LPA'?' selected':''}>Left Pulmonary Artery (LPA)</option>`+
+       `<option value="other"${cur==='other'?' selected':''}>Other (type label)…</option>`+
        `<option value="ignore"${cur==='ignore'?' selected':''}>Ignore</option>`+
        `</select>`+
+       (cur==='other'
+         ? `<input type="text" class="otherbox" data-name="${enc}" value="${escAttr(assignOther[v.name]||'')}" oninput="onOther(this)" placeholder="Flow label (e.g. Fontan, LSVC, Conduit)">`
+         : '')+
        `<span class="vsummary">total ${num(v.total)} / eff ${num(v.eff)} l/min &middot; RF ${num(v.regurg)}%</span></div>`;
   });
   card.innerHTML=h; card.style.display='block';
 }
+function escAttr(s){ return (''+s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function onAssign(sel){ assign[decodeURIComponent(sel.dataset.name)]=sel.value; generate(); }
+function onOther(inp){ assignOther[decodeURIComponent(inp.dataset.name)]=inp.value; generate(true); }
 
 function renderAudit(rows){
   const bandLbl=state.band==='adult'?'Adult 20–65':'Pediatric 8–17';
@@ -405,7 +423,9 @@ async function copyOut(){
     navigator.clipboard.writeText(text).then(showCopied).catch(()=>{});
   }
 }
-function clearAll(){ document.getElementById('input').value=''; for(const k in assign) delete assign[k];
+function clearAll(){ document.getElementById('input').value='';
+  for(const k in assign) delete assign[k];
+  for(const k in assignOther) delete assignOther[k];
   document.getElementById('assignCard').style.display='none'; }
 
 const SAMPLE=`SAX3D Stack LV Function
