@@ -410,13 +410,25 @@ function renderAudit(rows){
 }
 
 function showCopied(){ const c=document.getElementById('copied'); c.style.display='inline'; setTimeout(()=>c.style.display='none',1600); }
-async function copyOut(){
-  const text=document.getElementById('output').textContent;
+/* build black-Arial, line-by-line HTML for the clipboard */
+function reportHtml(text){
   const escLine=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const st='margin:0;font-family:Arial,Helvetica,sans-serif;color:#000000;white-space:pre-wrap;';
-  const html=text.split('\n').map(line=>
+  return text.split('\n').map(line=>
     line==='' ? `<div style="${st}"><br></div>` : `<div style="${st}">${escLine(line)}</div>`
   ).join('');
+}
+/* when the user highlights the report and copies (Ctrl/Cmd+C), reformat like the Copy button */
+document.getElementById('output').addEventListener('copy',function(e){
+  const sel=(window.getSelection&&window.getSelection().toString())||'';
+  const text=sel||document.getElementById('output').textContent;
+  e.clipboardData.setData('text/plain',text);
+  e.clipboardData.setData('text/html',reportHtml(text));
+  e.preventDefault();
+});
+async function copyOut(){
+  const text=document.getElementById('output').textContent;
+  const html=reportHtml(text);
   try{
     await navigator.clipboard.write([new ClipboardItem({
       'text/html': new Blob([html],{type:'text/html'}),
