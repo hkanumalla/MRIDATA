@@ -16,6 +16,8 @@
   header{background:linear-gradient(135deg,var(--accent),var(--accent-dark));color:#fff;padding:20px 24px}
   header h1{margin:0;font-size:20px;font-weight:650;letter-spacing:.2px}
   header p{margin:4px 0 0;font-size:13px;opacity:.9}
+  header ol.steps{margin:8px 0 0;padding-left:20px;font-size:13px;opacity:.95}
+  header ol.steps li{margin:2px 0}
   header .credit{margin:10px 0 0;font-size:12.5px;font-weight:600;opacity:.95;letter-spacing:.2px}
   header .version{margin:2px 0 0;font-size:11px;font-weight:400;font-style:italic;opacity:.85}
   .wrap{max-width:1180px;margin:0 auto;padding:20px 24px 60px}
@@ -63,7 +65,12 @@
 <body>
 <header>
   <h1>Cardiac MRI Z-Score Report Generator</h1>
-  <p>Paste the MRI software output &rarr; pick band &amp; sex &rarr; assign any unlabeled flows &rarr; get a finished report. Runs entirely in your browser &mdash; no data leaves this computer.</p>
+  <ol class="steps">
+    <li>Highlight entire table in CVI for SAX function and copy.</li>
+    <li>Paste entire table into box.</li>
+    <li>Highlight flow table for all flows and copy.</li>
+    <li>Paste into box.</li>
+  </ol>
   <p class="credit">Created by Harsha Kanumalla, MD</p>
   <p class="version">Version 1</p>
 </header>
@@ -77,10 +84,10 @@
 
   <div class="controls">
     <div class="ctl">
-      <label>Age band</label>
+      <label>Age range</label>
       <div class="seg" id="band">
-        <button data-v="adult" class="on">Adult (20&ndash;65)</button>
-        <button data-v="ped">Pediatric (8&ndash;17)</button>
+        <button data-v="ped" class="on">Pediatric (8&ndash;17)</button>
+        <button data-v="adult">Adult (20&ndash;65)</button>
       </div>
     </div>
     <div class="ctl">
@@ -100,8 +107,8 @@
     <div class="ctl">
       <label>Regurg fraction</label>
       <div class="seg" id="rf">
-        <button data-v="exact" class="on">As exported</button>
-        <button data-v="round">Round to whole %</button>
+        <button data-v="exact" class="on">Exact</button>
+        <button data-v="round">Round (%)</button>
       </div>
     </div>
   </div>
@@ -151,7 +158,7 @@ const NORM = {
 };
 
 /* ---------- UI state ---------- */
-const state = { band:'adult', sex:'F', round:'round', rf:'exact' };
+const state = { band:'ped', sex:'F', round:'round', rf:'exact' };
 const assign = {};   /* vessel name -> slot chosen in dropdown (persists across regenerates) */
 
 function wireSeg(id,key){
@@ -252,6 +259,19 @@ function generate(){
     if(slot && slot!=='ignore') slots[slot]=v;
   });
   renderAssign(ambiguous);
+
+  /* block generation until every unlabeled ROI is assigned (Ignore counts as a choice) */
+  const unassigned=ambiguous.filter(v=>!assign[v.name]);
+  if(unassigned.length){
+    document.getElementById('output').textContent=
+      '⚠ You must assign every unlabeled flow before generating.\n\n'+
+      'Still needs a choice: '+unassigned.map(v=>v.name).join(', ')+'\n\n'+
+      'Use the “Assign unlabeled flows” section below to choose which report line each belongs to (or Ignore), then press Generate report again.';
+    document.getElementById('miss').style.display='none';
+    document.getElementById('qpNote').style.display='none';
+    document.getElementById('auditWrap').innerHTML='<p class="note">Report not generated — assign the flows above first.</p>';
+    return;
+  }
 
   const audit=[]; const missing=[]; const L=[];
 
