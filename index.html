@@ -316,7 +316,7 @@ function generate(skipAssign){
   }
   function one(label,key){ const v=M[key]; if(v==null) missing.push(label); return `${label}: ${num(v)}`; }
 
-  const freg=v=>{ if(!v||v.regurg==null) return ''; return state.rf==='round'? String(Math.round(v.regurg)) : num(v.regurg); };
+  const freg=v=>{ if(!v||v.regurg==null) return ''; if(v.regurg<2) return '<2'; return state.rf==='round'? String(Math.round(v.regurg)) : num(v.regurg); };
   const rpaT=slots.RPA?slots.RPA.total:null, lpaT=slots.LPA?slots.LPA.total:null;
   const mpaE=slots.MPA?slots.MPA.eff:null;
   const aoE =slots.AO ?slots.AO.eff:null;
