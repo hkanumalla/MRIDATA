@@ -79,8 +79,8 @@
 <div class="wrap">
   <div class="banner">
     Reads the SAX3D LV/RV function export and the Flow Analysis export in one paste. Aorta and Pulmonary Artery flows auto-map;
-    any ROI not clearly labeled (e.g. &ldquo;Flow ROI 4 Contour&rdquo;) prompts you to assign it. Total Qp and QpR:QpL ratios are
-    computed from the branch flows. Z-score math and normative constants come straight from the Bulletz sheet.
+    any ROI not clearly labeled (e.g. &ldquo;Flow ROI 4 Contour&rdquo;) prompts you to assign it. Total Qp and Qp:Qs are
+    computed from the flows, and only structures you paste are listed. Z-score math and normative constants come straight from the Bulletz sheet.
   </div>
 
   <div class="controls">
@@ -110,6 +110,13 @@
       <div class="seg" id="rf">
         <button data-v="exact" class="on">Exact</button>
         <button data-v="round">Round (%)</button>
+      </div>
+    </div>
+    <div class="ctl">
+      <label>Report flows (mL)?</label>
+      <div class="seg" id="ml">
+        <button data-v="no" class="on">No</button>
+        <button data-v="yes">Yes</button>
       </div>
     </div>
   </div>
@@ -159,7 +166,7 @@ const NORM = {
 };
 
 /* ---------- UI state ---------- */
-const state = { band:'ped', sex:'F', round:'round', rf:'exact' };
+const state = { band:'ped', sex:'F', round:'round', rf:'exact', ml:'no' };
 const assign = {};       /* vessel name -> slot chosen in dropdown (persists across regenerates) */
 const assignOther = {};  /* vessel name -> custom label typed when "Other" is chosen */
 
@@ -171,7 +178,7 @@ function wireSeg(id,key){
       if(document.getElementById('input').value.trim()) generate(); };
   });
 }
-wireSeg('band','band'); wireSeg('sex','sex'); wireSeg('round','round'); wireSeg('rf','rf');
+wireSeg('band','band'); wireSeg('sex','sex'); wireSeg('round','round'); wireSeg('rf','rf'); wireSeg('ml','ml');
 
 /* ---------- helpers ---------- */
 function firstNum(str){ const m=(str||'').match(/-?\d+(?:\.\d+)?/); return m?parseFloat(m[0]):null; }
@@ -226,18 +233,26 @@ function parseFlows(lines){
   for(let i=0;i<lines.length;i++){
     const line=lines[i]; if(!line) continue; const low=line.toLowerCase();
     if(low.startsWith('flow analysis')){
-      cur={ name:line.replace(/flow analysis/i,'').trim(), total:null, eff:null, regurg:null };
+      cur={ name:line.replace(/flow analysis/i,'').trim(), total:null, eff:null, regurg:null, fwd:null, net:null };
       blocks.push(cur); continue;
     }
     if(!cur) continue;
     if(low.startsWith('vol/min (effective)')) cur.eff=nextNum(i);
     else if(low.startsWith('vol/min'))        cur.total=nextNum(i);
     else if(low.startsWith('regurgitation fraction')) cur.regurg=nextNum(i);
+    else if(low.startsWith('total forward volume')) cur.fwd=nextNum(i);
+    else if(low.startsWith('total backward volume')) {/* ignore */}
+    else if(low.startsWith('total volume'))   cur.net=nextNum(i);
   }
   return blocks;
 }
+/* report-line destinations for a flow ROI */
 function autoSlot(name){
   const n=name.toLowerCase();
+  if(n.includes('ascending')) return 'ASCAO';
+  if(n.includes('descending')) return 'DAO';
+  if(n.includes('tricuspid')||n==='tv') return 'TV';
+  if(n.includes('mitral')||n==='mv') return 'MV';
   if(n.includes('aorta')||n.includes('aortic')) return 'AO';
   if(n.includes('right pulmonary')||n.includes('rpa')) return 'RPA';
   if(n.includes('left pulmonary')||n.includes('lpa')) return 'LPA';
@@ -274,7 +289,7 @@ function generate(skipAssign){
     document.getElementById('output').textContent=
       '⚠ You must assign every unlabeled flow before generating.\n\n'+
       'Still needs a choice: '+unassigned.map(v=>v.name).join(', ')+'\n\n'+
-      'Use the “Assign unlabeled flows” section below to choose which report line each belongs to (Main PA, Aorta, RPA, LPA, Other with a label, or Ignore), then press Generate report again.';
+      'Use the “Assign unlabeled flows” section below to choose which report line each belongs to (Aorta, Ascending/Descending aorta, Main/Right/Left PA, Tricuspid/Mitral valve, Other with a label, or Ignore), then press Generate report again.';
     document.getElementById('miss').style.display='none';
     document.getElementById('qpNote').style.display='none';
     document.getElementById('auditWrap').innerHTML='<p class="note">Report not generated — assign the flows above first.</p>';
@@ -301,16 +316,19 @@ function generate(skipAssign){
   }
   function one(label,key){ const v=M[key]; if(v==null) missing.push(label); return `${label}: ${num(v)}`; }
 
-  const fpair=v=> (v&&v.total!=null)?`${num(v.total)}/${num(v.eff)}`:'';
   const freg=v=>{ if(!v||v.regurg==null) return ''; return state.rf==='round'? String(Math.round(v.regurg)) : num(v.regurg); };
-  const ratio=(a,b)=>{ if(a==null||b==null) return ''; const s=a+b; if(!s) return ''; const r=Math.round(a/s*100); return `${r}:${100-r}%`; };
   const rpaT=slots.RPA?slots.RPA.total:null, lpaT=slots.LPA?slots.LPA.total:null;
-  const rpaE=slots.RPA?slots.RPA.eff:null,   lpaE=slots.LPA?slots.LPA.eff:null;
-  const mpaT=slots.MPA?slots.MPA.total:null,  mpaE=slots.MPA?slots.MPA.eff:null;
-  const aoT =slots.AO ?slots.AO.total:null,   aoE =slots.AO ?slots.AO.eff:null;
+  const mpaE=slots.MPA?slots.MPA.eff:null;
+  const aoE =slots.AO ?slots.AO.eff:null;
   const totQp=(rpaT!=null&&lpaT!=null)?(rpaT+lpaT).toFixed(2):'';
   const qpqs=(a,b)=> (a!=null&&b!=null&&b!==0)?`${(a/b).toFixed(2)}:1`:'';
-  const qpqsT=qpqs(mpaT,aoT);
+  const qpqsE=qpqs(mpaE,aoE);
+
+  /* flow line builders — return null when the ROI wasn't pasted, so we can omit it */
+  const flowLine=(label,v)=> (v&&v.total!=null)?`${label} (L/min) (total/effective): ${num(v.total)}/${num(v.eff)}`:null;
+  const mlLine  =(label,v)=> (v&&(v.fwd!=null||v.net!=null))?`${label} (mL) (total/effective): ${num(v.fwd)}/${num(v.net)}`:null;
+  const regLine =(label,v)=> (v&&v.regurg!=null)?`${label}: ${freg(v)}`:null;
+  const pushIf=x=>{ if(x!=null) L.push(x); };
 
   L.push('Ventricular Data:');
   L.push(zPair('LVEDV (ml)/ (Indexed to BSA)','LVEDVa','LVEDVi','LVEDVi'));
@@ -329,22 +347,39 @@ function generate(skipAssign){
   L.push(one('RV CI (l/min/m2)','RVCI'));
   L.push('');
   L.push('Flow Data');
-  L.push(`Aortic root (L/min) (total/effective): ${fpair(slots.AO)}`);
-  L.push(`Main Pulmonary Artery (L/min) (total/effective): ${fpair(slots.MPA)}`);
-  L.push(`Right Pulmonary Artery (L/min) (total/effective): ${fpair(slots.RPA)}`);
-  L.push(`Left Pulmonary Artery (L/min) (total/effective): ${fpair(slots.LPA)}`);
-  customFlows.forEach(c=>L.push(`${c.label} (L/min) (total/effective): ${fpair(c.v)}`));
-  L.push(`Total Qp based on QpR+QpL = ${totQp}`);
-  L.push(`QpR:QpL based on total flows ${ratio(rpaT,lpaT)}`);
-  L.push(`QpR:QpL based on effective flows ${ratio(rpaE,lpaE)}`);
-  L.push(`Qp:Qs based on total flows (MPA/Aorta) = ${qpqsT}`);
-  L.push('');
-  L.push('Flow Fractions');
-  L.push(`Pulmonary Regurgitation Fraction (%): ${freg(slots.MPA)}`);
-  L.push(`Aortic Regurgitant Fraction (%): ${freg(slots.AO)}`);
-  L.push(`RPA Regurgitant Fraction (%): ${freg(slots.RPA)}`);
-  L.push(`LPA Regurgitant Fraction (%): ${freg(slots.LPA)}`);
-  customFlows.forEach(c=>L.push(`${c.label} Regurgitant Fraction (%): ${freg(c.v)}`));
+  pushIf(flowLine('Aortic root',slots.AO));
+  pushIf(flowLine('Main Pulmonary Artery',slots.MPA));
+  pushIf(flowLine('Right Pulmonary Artery',slots.RPA));
+  pushIf(flowLine('Left Pulmonary Artery',slots.LPA));
+  customFlows.forEach(c=>pushIf(flowLine(c.label,c.v)));
+  if(totQp) L.push(`Total Qp based on QpR+QpL = ${totQp}`);
+  if(qpqsE) L.push(`Qp:Qs based on effective flows (MPA/Aorta) = ${qpqsE}`);
+
+  if(state.ml==='yes'){
+    const mlLines=[
+      mlLine('Aortic root',slots.AO),
+      mlLine('Ascending aorta',slots.ASCAO),
+      mlLine('Main Pulmonary Artery',slots.MPA),
+      mlLine('Right Pulmonary Artery',slots.RPA),
+      mlLine('Left Pulmonary Artery',slots.LPA),
+      mlLine('Tricuspid Valve',slots.TV),
+      mlLine('Mitral Valve',slots.MV),
+      mlLine('Descending Aorta (level of diaphragm)',slots.DAO)
+    ];
+    customFlows.forEach(c=>mlLines.push(mlLine(c.label,c.v)));
+    const present=mlLines.filter(x=>x!=null);
+    if(present.length){ L.push(''); L.push('Flow Volumes (mL)'); present.forEach(x=>L.push(x)); }
+  }
+
+  const fractions=[
+    regLine('Pulmonary Regurgitation Fraction (%)',slots.MPA),
+    regLine('Aortic Regurgitant Fraction (%)',slots.AO),
+    regLine('RPA Regurgitant Fraction (%)',slots.RPA),
+    regLine('LPA Regurgitant Fraction (%)',slots.LPA)
+  ];
+  customFlows.forEach(c=>fractions.push(regLine(`${c.label} Regurgitant Fraction (%)`,c.v)));
+  const fracPresent=fractions.filter(x=>x!=null);
+  if(fracPresent.length){ L.push(''); L.push('Flow Fractions'); fracPresent.forEach(x=>L.push(x)); }
 
   document.getElementById('output').textContent=L.join('\n');
   renderAudit(audit);
@@ -380,10 +415,14 @@ function renderAssign(ambiguous){
     h+=`<div class="assignrow${unset}"><span class="vname">${v.name}</span>`+
        `<select data-name="${enc}" onchange="onAssign(this)">`+
        `<option value="">— select —</option>`+
-       `<option value="MPA"${cur==='MPA'?' selected':''}>Main Pulmonary Artery</option>`+
        `<option value="AO"${cur==='AO'?' selected':''}>Aortic root</option>`+
+       `<option value="ASCAO"${cur==='ASCAO'?' selected':''}>Ascending aorta</option>`+
+       `<option value="DAO"${cur==='DAO'?' selected':''}>Descending Aorta (level of diaphragm)</option>`+
+       `<option value="MPA"${cur==='MPA'?' selected':''}>Main Pulmonary Artery</option>`+
        `<option value="RPA"${cur==='RPA'?' selected':''}>Right Pulmonary Artery (RPA)</option>`+
        `<option value="LPA"${cur==='LPA'?' selected':''}>Left Pulmonary Artery (LPA)</option>`+
+       `<option value="TV"${cur==='TV'?' selected':''}>Tricuspid Valve</option>`+
+       `<option value="MV"${cur==='MV'?' selected':''}>Mitral Valve</option>`+
        `<option value="other"${cur==='other'?' selected':''}>Other (type label)…</option>`+
        `<option value="ignore"${cur==='ignore'?' selected':''}>Ignore</option>`+
        `</select>`+
