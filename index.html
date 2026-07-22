@@ -26,7 +26,7 @@
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;box-shadow:0 1px 2px rgba(16,40,64,.04)}
   .card h2{margin:0 0 12px;font-size:14px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
   .controls{display:flex;flex-wrap:wrap;gap:18px;margin-bottom:16px}
-  .ctl{display:flex;flex-direction:column;gap:6px}
+  .ctl{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
   .ctl label{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
   .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
   .seg button{border:0;background:#fff;padding:8px 14px;font-size:13px;cursor:pointer;color:var(--ink);font-weight:500}
@@ -375,7 +375,9 @@ function generate(skipAssign){
     regLine('Pulmonary Regurgitation Fraction (%)',slots.MPA),
     regLine('Aortic Regurgitant Fraction (%)',slots.AO),
     regLine('RPA Regurgitant Fraction (%)',slots.RPA),
-    regLine('LPA Regurgitant Fraction (%)',slots.LPA)
+    regLine('LPA Regurgitant Fraction (%)',slots.LPA),
+    regLine('Tricuspid Valve Regurgitant Fraction (%)',slots.TV),
+    regLine('Mitral Valve Regurgitant Fraction (%)',slots.MV)
   ];
   customFlows.forEach(c=>fractions.push(regLine(`${c.label} Regurgitant Fraction (%)`,c.v)));
   const fracPresent=fractions.filter(x=>x!=null);
