@@ -150,7 +150,7 @@
     <div class="controls" style="margin-bottom:12px">
       <div class="ctl"><label>Method</label>
         <div class="seg" id="bMode"><button data-v="avg" class="on">Average</button><button data-v="each">Individual</button></div></div>
-      <div class="ctl"><label>BSA (m&sup2;)</label><input type="text" id="bBSA" class="otherbox" style="min-width:120px" placeholder="auto from data" oninput="generate()"></div>
+      <div class="ctl"><label>BSA (m&sup2;) (range 0.25&ndash;2.40)</label><input type="text" id="bBSA" class="otherbox" style="min-width:120px" placeholder="auto from data" oninput="generate()"></div>
     </div>
     <textarea id="bDims" spellcheck="false" style="min-height:120px" placeholder="Paste vessel dimensions from CVI, one per line — e.g.&#10;Ascending aorta 2.1 cm x 2.2 cm&#10;Aortic root 2.6 cm&#10;Main pulmonary artery 2.0 x 2.1 cm" oninput="generate()"></textarea>
     <p class="note">Recognized: aortic root, ascending aorta, main / right / left pulmonary artery. <b>Average</b> gives one z from the mean of the dimensions; <b>Individual</b> gives a z for each dimension in the order pasted. Each line is echoed with its z appended; unrecognized lines pass through unchanged. Results appear as the last section of the report. BSA is taken from the pasted ventricular data (absolute &divide; indexed) if present, otherwise type it above.</p>
