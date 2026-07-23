@@ -52,6 +52,7 @@
   .qpnote{border-radius:8px;padding:8px 12px;font-size:12.5px;margin-top:12px}
   .qpnote.ok{background:#eef7f0;border:1px solid #bfe3ca;color:#1a6b3d}
   .qpnote.warn{background:#fdeceb;border:1px solid #f2c0bb;color:#a03026}
+  .abn-line{color:#ff8f8f;font-weight:700}
   .copied{color:var(--ok);font-size:13px;font-weight:600;align-self:center;display:none}
   #assignCard{border-color:#f0d8a8;background:#fffdf7}
   .assignrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 0;border-top:1px dashed var(--line)}
@@ -135,12 +136,20 @@
       <h2>2 &middot; Finished report</h2>
       <pre class="output" id="output">Your generated report will appear here.</pre>
       <div class="miss" id="miss"></div>
+      <div class="miss" id="sanity" style="display:none"></div>
       <div class="qpnote" id="qpNote" style="display:none"></div>
       <div class="btnrow">
         <button class="btn btn-primary" onclick="copyOut()">Copy report</button>
         <span class="copied" id="copied">Copied &#10003;</span>
       </div>
     </div>
+  </div>
+
+  <div class="card" id="imprCard" style="display:none;margin-top:20px">
+    <h2>Impression (draft)</h2>
+    <p class="note">Auto-generated from the values &mdash; review and edit before use. Not part of the copied report above.</p>
+    <textarea id="imprText" spellcheck="false" style="min-height:120px"></textarea>
+    <div class="btnrow"><button class="btn btn-primary" onclick="copyImpr()">Copy impression</button><span class="copied" id="imprCopied">Copied &#10003;</span></div>
   </div>
 
   <div class="card" id="assignCard" style="display:none;margin-top:20px"></div>
@@ -398,6 +407,7 @@ function generate(skipAssign){
   if(fracPresent.length){ L.push(''); L.push('Flow Fractions'); fracPresent.forEach(x=>L.push(x)); }
 
   /* ---- Boston Z-Score (last section) ---- */
+  const bostonAbn=[];
   const bItems=parseBostonLines(bdimsVal);
   if(bItems.length){
     const bBSAel=document.getElementById('bBSA');
@@ -417,15 +427,19 @@ function generate(skipAssign){
         const a=it.dims.reduce((s,v)=>s+v,0)/it.dims.length;
         const r=bZ(it.key,bsaB,a);
         L.push(`${it.base} (z-score = ${r.zs})${r.oor?' [BSA out of range]':''}`);
+        if(Math.abs(parseFloat(r.zs))>=2) bostonAbn.push({name:BOSTON[it.key].name, z:r.zs});
       } else {
         const zl=it.dims.map(d=>bZ(it.key,bsaB,d));
         const oor=zl.some(r=>r.oor);
         L.push(`${it.base} (z-score ${zl.map(r=>r.zs).join(', ')})${oor?' [BSA out of range]':''}`);
+        const worst=zl.map(r=>parseFloat(r.zs)).sort((a,b)=>Math.abs(b)-Math.abs(a))[0];
+        if(Math.abs(worst)>=2) bostonAbn.push({name:BOSTON[it.key].name, z:worst.toFixed(1)});
       }
     });
   }
 
-  document.getElementById('output').textContent=L.join('\n');
+  const escH=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  document.getElementById('output').innerHTML=L.map(line=>lineAbnormal(line)?`<span class="abn-line">${escH(line)}</span>`:escH(line)).join('\n');
   renderAudit(audit);
 
   const missBox=document.getElementById('miss');
@@ -445,6 +459,61 @@ function generate(skipAssign){
       `Qp check: RPA + LPA = ${sum.toFixed(2)} vs Main PA = ${mpaT.toFixed(2)} L/min `+
       `(${pct.toFixed(0)}% difference).`+(warn?' Branch flows and Main PA disagree &mdash; verify contours.':'');
   } else qp.style.display='none';
+
+  /* ---- sanity / plausibility checks ---- */
+  const sane=[];
+  const off=(a,b,tol)=>Math.abs(a-b)>tol;
+  if(M.LVEF!=null && (M.LVEF>100||M.LVEF<0)) sane.push(`LV EF out of range (${M.LVEF}%)`);
+  if(M.RVEF!=null && (M.RVEF>100||M.RVEF<0)) sane.push(`RV EF out of range (${M.RVEF}%)`);
+  if(M.LVEDVa!=null&&M.LVESVa!=null&&M.LVSVa!=null){const e=M.LVEDVa-M.LVESVa;if(off(e,M.LVSVa,Math.max(2,0.05*Math.abs(e))))sane.push(`LV SV ${M.LVSVa} ≠ EDV−ESV (${e.toFixed(1)})`);}
+  if(M.RVEDVa!=null&&M.RVESVa!=null&&M.RVSVa!=null){const e=M.RVEDVa-M.RVESVa;if(off(e,M.RVSVa,Math.max(2,0.05*Math.abs(e))))sane.push(`RV SV ${M.RVSVa} ≠ EDV−ESV (${e.toFixed(1)})`);}
+  if(M.LVEDVa&&M.LVESVa!=null&&M.LVEF!=null){const efc=100*(M.LVEDVa-M.LVESVa)/M.LVEDVa;if(off(efc,M.LVEF,3))sane.push(`LV EF ${M.LVEF}% vs computed ${efc.toFixed(0)}%`);}
+  if(M.RVEDVa&&M.RVESVa!=null&&M.RVEF!=null){const efc=100*(M.RVEDVa-M.RVESVa)/M.RVEDVa;if(off(efc,M.RVEF,3))sane.push(`RV EF ${M.RVEF}% vs computed ${efc.toFixed(0)}%`);}
+  if(M.LVEDVa&&M.LVEDVi&&M.RVEDVa&&M.RVEDVi){const bl=M.LVEDVa/M.LVEDVi,br=M.RVEDVa/M.RVEDVi;if(Math.abs(bl-br)/bl>0.03)sane.push(`BSA mismatch: LV ${bl.toFixed(2)} vs RV ${br.toFixed(2)} m²`);}
+  const sBox=document.getElementById('sanity');
+  if(sane.length){ sBox.style.display='block'; sBox.innerHTML='&#9888; Check: '+sane.join(' &middot; '); } else sBox.style.display='none';
+
+  /* ---- impression draft (separate box) ---- */
+  const impr=buildImpression(M,slots,{qpqsE},bostonAbn);
+  const iCard=document.getElementById('imprCard'), iText=document.getElementById('imprText');
+  if(impr){ iCard.style.display='block'; if(document.activeElement!==iText) iText.value=impr; }
+  else { iCard.style.display='none'; }
+}
+
+function lineAbnormal(line){
+  let m=line.match(/\(z:\s*(-?\d+(?:\.\d+)?)/i);
+  if(m && Math.abs(parseFloat(m[1]))>=2) return true;
+  m=line.match(/z-score[^)]*\)/i);
+  if(m){ const nums=(m[0].match(/-?\d+(?:\.\d+)?/g)||[]).map(Number); if(nums.some(n=>Math.abs(n)>=2)) return true; }
+  return false;
+}
+
+function buildImpression(M,slots,flow,bostonAbn){
+  const S=[];
+  const sizeWord=z=>{const a=Math.abs(z);if(a<=2)return 'normal in size';const sev=a>4?'severely ':a>3?'moderately-to-severely ':'mildly ';return sev+(z>0?'dilated':'hypoplastic');};
+  const lvFunc=ef=>ef>=55?'normal systolic function':ef>=45?'mildly reduced systolic function':ef>=35?'moderately reduced systolic function':'severely reduced systolic function';
+  const rvFunc=ef=>ef>=48?'normal systolic function':ef>=40?'mildly reduced systolic function':ef>=30?'moderately reduced systolic function':'severely reduced systolic function';
+  const zof=(idxK,zKey)=>{const b=M[idxK];if(b==null)return null;const n=NORM[state.band]&&NORM[state.band][state.sex]&&NORM[state.band][state.sex][zKey];if(!n)return null;return (b-n.m)/n.s;};
+  const lvz=zof('LVEDVi','LVEDVi');
+  if(lvz!=null||M.LVEF!=null){let s='The left ventricle is '+(lvz!=null?sizeWord(lvz):'of indeterminate size');if(M.LVEF!=null)s+=' with '+lvFunc(M.LVEF)+' (EF '+M.LVEF+'%)';S.push(s+'.');}
+  const lmz=zof('LVmassi','LVmassi');
+  if(lmz!=null&&Math.abs(lmz)>2)S.push('There is '+(lmz>0?'increased':'decreased')+' LV mass (z '+lmz.toFixed(1)+').');
+  const rvz=zof('RVEDVi','RVEDVi');
+  if(rvz!=null||M.RVEF!=null){let s='The right ventricle is '+(rvz!=null?sizeWord(rvz):'of indeterminate size');if(M.RVEF!=null)s+=' with '+rvFunc(M.RVEF)+' (EF '+M.RVEF+'%)';S.push(s+'.');}
+  const gradeRF=x=>x>=40?'severe':x>=20?'moderate':x>=10?'mild':null;
+  const rf=v=>(v&&v.regurg!=null)?v.regurg:null;
+  const pr=rf(slots.MPA); if(pr!=null){const g=gradeRF(pr);if(g)S.push('There is '+g+' pulmonary regurgitation (RF '+pr+'%).');}
+  const ar=rf(slots.AO); if(ar!=null){const g=gradeRF(ar);if(g)S.push('There is '+g+' aortic regurgitation (RF '+ar+'%).');}
+  if(flow.qpqsE){const q=parseFloat(flow.qpqsE);if(!isNaN(q)){if(q>=1.15)S.push('Qp:Qs is '+flow.qpqsE+', consistent with a net left-to-right shunt.');else if(q<=0.85)S.push('Qp:Qs is '+flow.qpqsE+', consistent with a net right-to-left shunt.');}}
+  (bostonAbn||[]).forEach(b=>{const z=parseFloat(b.z);S.push('The '+b.name.toLowerCase()+' is '+(z>0?'dilated':'hypoplastic')+' (z '+b.z+').');});
+  return S.length?S.join('\n'):'';
+}
+
+async function copyImpr(){
+  const text=document.getElementById('imprText').value; if(!text)return;
+  try{ await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([reportHtml(text)],{type:'text/html'}),'text/plain':new Blob([text],{type:'text/plain'})})]); }
+  catch(e){ navigator.clipboard.writeText(text).catch(()=>{}); }
+  const c=document.getElementById('imprCopied'); c.style.display='inline'; setTimeout(()=>c.style.display='none',1600);
 }
 
 function renderAssign(ambiguous){
