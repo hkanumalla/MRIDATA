@@ -149,11 +149,11 @@
     <h2>Boston Z-Score &middot; Vascular diameters</h2>
     <div class="controls" style="margin-bottom:12px">
       <div class="ctl"><label>Method</label>
-        <div class="seg" id="bMode"><button data-v="avg" class="on">Average</button><button data-v="minmax">Min/Max</button></div></div>
+        <div class="seg" id="bMode"><button data-v="avg" class="on">Average</button><button data-v="each">Individual</button></div></div>
       <div class="ctl"><label>BSA (m&sup2;)</label><input type="text" id="bBSA" class="otherbox" style="min-width:120px" placeholder="auto from data" oninput="generate()"></div>
     </div>
     <textarea id="bDims" spellcheck="false" style="min-height:120px" placeholder="Paste vessel dimensions from CVI, one per line — e.g.&#10;Ascending aorta 2.1 cm x 2.2 cm&#10;Aortic root 2.6 cm&#10;Main pulmonary artery 2.0 x 2.1 cm" oninput="generate()"></textarea>
-    <p class="note">Recognized: aortic root, ascending aorta, main / right / left pulmonary artery. <b>Average</b> uses the mean of the pasted dimensions; <b>Min/Max</b> reports a z for the smallest and the largest. Results appear as the last section of the report. BSA is taken from the pasted ventricular data (absolute &divide; indexed) if present, otherwise type it above.</p>
+    <p class="note">Recognized: aortic root, ascending aorta, main / right / left pulmonary artery. <b>Average</b> gives one z from the mean of the dimensions; <b>Individual</b> gives a z for each dimension in the order pasted. Each line is echoed with its z appended; unrecognized lines pass through unchanged. Results appear as the last section of the report. BSA is taken from the pasted ventricular data (absolute &divide; indexed) if present, otherwise type it above.</p>
   </div>
 
   <div class="card" style="margin-top:20px">
@@ -398,7 +398,7 @@ function generate(skipAssign){
   if(fracPresent.length){ L.push(''); L.push('Flow Fractions'); fracPresent.forEach(x=>L.push(x)); }
 
   /* ---- Boston Z-Score (last section) ---- */
-  const bItems=parseBostonDims(bdimsVal);
+  const bItems=parseBostonLines(bdimsVal);
   if(bItems.length){
     const bBSAel=document.getElementById('bBSA');
     let bsaB=parseFloat(bBSAel.value);
@@ -407,27 +407,22 @@ function generate(skipAssign){
     else if(M.RVEDVa!=null && M.RVEDVi) bsaAuto=M.RVEDVa/M.RVEDVi;
     if(bsaAuto) bBSAel.placeholder='auto: '+(Math.round(bsaAuto*100)/100);
     if(isNaN(bsaB) && bsaAuto) bsaB=Math.round(bsaAuto*100)/100;
+    const haveBSA=!isNaN(bsaB);
     L.push('');
     L.push('Boston Z-Score');
-    if(isNaN(bsaB)){
-      L.push('(BSA needed — none found in ventricular data; enter it in the Boston box)');
-    } else {
-      L.push(`BSA ${bsaB.toFixed(2)} m2 · method: ${state.bmode==='avg'?'average':'min/max'}`);
-      bItems.forEach(it=>{
-        const nm=BOSTON[it.key].name;
-        const dstr=it.dims.map(x=>''+x).join(' x ')+' cm';
-        if(state.bmode==='avg'){
-          const a=it.dims.reduce((s,v)=>s+v,0)/it.dims.length;
-          const r=bZ(it.key,bsaB,a);
-          L.push(`${nm}: ${dstr} — mean ${a.toFixed(2)} cm (z: ${r.zs})${r.oor?' [BSA out of range]':''}`);
-        } else {
-          const mn=Math.min(...it.dims), mx=Math.max(...it.dims);
-          const rmn=bZ(it.key,bsaB,mn), rmx=bZ(it.key,bsaB,mx);
-          if(mn===mx) L.push(`${nm}: ${dstr} (z: ${rmn.zs})${rmn.oor?' [BSA out of range]':''}`);
-          else L.push(`${nm}: ${dstr} — min ${mn} cm (z: ${rmn.zs}); max ${mx} cm (z: ${rmx.zs})${rmn.oor?' [BSA out of range]':''}`);
-        }
-      });
-    }
+    if(!haveBSA) L.push('(enter BSA for z-scores — none found in ventricular data)');
+    bItems.forEach(it=>{
+      if(!it.key || !haveBSA || !it.dims.length){ L.push(it.raw); return; }
+      if(state.bmode==='avg'){
+        const a=it.dims.reduce((s,v)=>s+v,0)/it.dims.length;
+        const r=bZ(it.key,bsaB,a);
+        L.push(`${it.base} (z-score = ${r.zs})${r.oor?' [BSA out of range]':''}`);
+      } else {
+        const zl=it.dims.map(d=>bZ(it.key,bsaB,d));
+        const oor=zl.some(r=>r.oor);
+        L.push(`${it.base} (z-score ${zl.map(r=>r.zs).join(', ')})${oor?' [BSA out of range]':''}`);
+      }
+    });
   }
 
   document.getElementById('output').textContent=L.join('\n');
@@ -619,9 +614,9 @@ const BOSTON = {
 };
 /* Boston method toggle (Average / Min-Max) */
 (function(){const box=document.getElementById('bMode');if(!box)return;box.querySelectorAll('button').forEach(b=>{b.onclick=()=>{box.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');state.bmode=b.dataset.v;generate();};});})();
-function bZ(key,bsa,dcm){const {mean,slope,oor}=bLookup(BOSTON[key],bsa);const z=slope*(dcm-mean);let zr=Math.round(Math.round(z*100)/100*10)/10;if(Object.is(zr,-0))zr=0;return {z, zs:(zr>0?'+':'')+zr.toFixed(1), oor};}
+function bZ(key,bsa,dcm){const {mean,slope,oor}=bLookup(BOSTON[key],bsa);const z=slope*(dcm-mean);let zr=Math.round(Math.round(z*100)/100*10)/10;if(Object.is(zr,-0))zr=0;return {z, zs:zr.toFixed(1), oor};}
 const B_MATCH=[['ascending','ASC'],['aortic root','AOR'],['right pulmonary','RPA'],['left pulmonary','LPA'],['main pulmonary','MPA'],['rpa','RPA'],['lpa','LPA'],['mpa','MPA'],['pulmonary artery','MPA']];
-function parseBostonDims(text){const out=[];(text||'').split(/\r?\n/).forEach(line=>{const l=line.trim();if(!l)return;const low=l.toLowerCase();let key=null;for(const [p,k] of B_MATCH){if(low.includes(p)){key=k;break;}}if(!key)return;const isMm=/\bmm\b/.test(low);let nums=(l.match(/\d+(?:\.\d+)?/g)||[]).map(Number);if(!nums.length)return;if(isMm)nums=nums.map(n=>Math.round(n)/10);out.push({key,dims:nums,raw:l});});return out;}
+function parseBostonLines(text){const out=[];(text||'').split(/\r?\n/).forEach(line=>{const l=line.trim();if(!l)return;const low=l.toLowerCase();if(!/(cm|mm)/.test(low))return;let key=null;for(const [p,k] of B_MATCH){if(low.includes(p)){key=k;break;}}const isMm=/\bmm\b/.test(low);const base=l.replace(/\s*\(\s*(?:z[\s-]*score\s*[=:]?\s*)?[+-]?\d+(?:\.\d+)?[^)]*\)\s*$/i,'').replace(/\s+$/,'');let nums=(base.match(/\d+(?:\.\d+)?/g)||[]).map(Number);if(isMm)nums=nums.map(n=>Math.round(n)/10);out.push({raw:l,base,key,dims:nums});});return out;}
 function bLookup(t,bsa){let oor=false;let b=Math.round(bsa*100)/100;const bmax=Math.round((t.b+t.s*(t.d.length-1))*100)/100;if(b<t.b){b=t.b;oor=true;}if(b>bmax){b=bmax;oor=true;}let i=Math.round((b-t.b)/t.s);i=Math.max(0,Math.min(t.d.length-1,i));return {mean:t.d[i][0],slope:t.d[i][1],oor};}
 function bInterpret(z){const a=Math.abs(z);if(a<=2)return 'normal in size';const sev=a>3?'severely ':'';return sev+(z>0?'dilated':'hypoplastic');}
 </script>
