@@ -408,7 +408,7 @@ function generate(skipAssign){
 
   /* ---- Boston Z-Score (last section) ---- */
   const bostonAbn=[];
-  const bItems=parseBostonLines(bdimsVal);
+  const bItems=parseBostonBlocks(bdimsVal);
   if(bItems.length){
     const bBSAel=document.getElementById('bBSA');
     let bsaB=parseFloat(bBSAel.value);
@@ -422,16 +422,23 @@ function generate(skipAssign){
     L.push('Boston Z-Score');
     if(!haveBSA) L.push('(enter BSA for z-scores — none found in ventricular data)');
     bItems.forEach(it=>{
-      if(!it.key || !haveBSA || !it.dims.length){ L.push(it.raw); return; }
+      const canScore = it.key && haveBSA && it.dims.length;
+      if(!canScore){                       /* not a scored structure — pass through unchanged */
+        if(it.self) L.push(it.nameLine); else it.raw.forEach(r=>L.push(r));
+        return;
+      }
+      const dfmt=it.dims.map(d=>d.toFixed(1)).join(' x ');
       if(state.bmode==='avg'){
         const a=it.dims.reduce((s,v)=>s+v,0)/it.dims.length;
         const r=bZ(it.key,bsaB,a);
-        L.push(`${it.base} (z-score = ${r.zs})${r.oor?' [BSA out of range]':''}`);
+        L.push(it.self ? `${it.base} (z-score = ${r.zs})${r.oor?' [BSA out of range]':''}`
+                       : `${it.nameLine} (cm): ${dfmt} (z-score = ${r.zs})${r.oor?' [BSA out of range]':''}`);
         if(Math.abs(parseFloat(r.zs))>=2) bostonAbn.push({name:BOSTON[it.key].name, z:r.zs});
       } else {
         const zl=it.dims.map(d=>bZ(it.key,bsaB,d));
         const oor=zl.some(r=>r.oor);
-        L.push(`${it.base} (z-score ${zl.map(r=>r.zs).join(', ')})${oor?' [BSA out of range]':''}`);
+        L.push(it.self ? `${it.base} (z-score ${zl.map(r=>r.zs).join(', ')})${oor?' [BSA out of range]':''}`
+                       : `${it.nameLine} (cm): ${dfmt} (z-score ${zl.map(r=>r.zs).join(', ')})${oor?' [BSA out of range]':''}`);
         const worst=zl.map(r=>parseFloat(r.zs)).sort((a,b)=>Math.abs(b)-Math.abs(a))[0];
         if(Math.abs(worst)>=2) bostonAbn.push({name:BOSTON[it.key].name, z:worst.toFixed(1)});
       }
@@ -684,8 +691,34 @@ const BOSTON = {
 /* Boston method toggle (Average / Min-Max) */
 (function(){const box=document.getElementById('bMode');if(!box)return;box.querySelectorAll('button').forEach(b=>{b.onclick=()=>{box.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');state.bmode=b.dataset.v;generate();};});})();
 function bZ(key,bsa,dcm){const {mean,slope,oor}=bLookup(BOSTON[key],bsa);const z=slope*(dcm-mean);let zr=Math.round(Math.round(z*100)/100*10)/10;if(Object.is(zr,-0))zr=0;return {z, zs:zr.toFixed(1), oor};}
-const B_MATCH=[['ascending','ASC'],['aortic root','AOR'],['right pulmonary','RPA'],['left pulmonary','LPA'],['main pulmonary','MPA'],['rpa','RPA'],['lpa','LPA'],['mpa','MPA'],['pulmonary artery','MPA']];
-function parseBostonLines(text){const out=[];(text||'').split(/\r?\n/).forEach(line=>{const l=line.trim();if(!l)return;const low=l.toLowerCase();if(!/(cm|mm)/.test(low))return;let key=null;for(const [p,k] of B_MATCH){if(low.includes(p)){key=k;break;}}const isMm=/\bmm\b/.test(low);const base=l.replace(/\s*\(\s*(?:z[\s-]*score\s*[=:]?\s*)?[+-]?\d+(?:\.\d+)?[^)]*\)\s*$/i,'').replace(/\s+$/,'');let nums=(base.match(/\d+(?:\.\d+)?/g)||[]).map(Number);if(isMm)nums=nums.map(n=>Math.round(n)/10);out.push({raw:l,base,key,dims:nums});});return out;}
+const B_MATCH=[['ascending','ASC'],['aao','ASC'],['aortic root','AOR'],['ao root','AOR'],['right pulmonary','RPA'],['left pulmonary','LPA'],['main pulmonary','MPA'],['rpa','RPA'],['lpa','LPA'],['mpa','MPA'],['pulmonary artery','MPA']];
+/* Parses single-line ("Ascending aorta 2.1 cm x 2.2 cm") OR CVI multi-line
+   (name flush-left, then indented "N: Length 22.57 mm" rows; mm² areas ignored). */
+function parseBostonBlocks(text){
+  const out=[]; let cur=null;
+  (text||'').split(/\r?\n/).forEach(rl=>{
+    if(!rl.trim()) return;
+    if((/^[\t ]/.test(rl) || /^\s*\d+\s*:/.test(rl)) && cur){   /* indented OR "N:" row → measurement */
+      cur.raw.push(rl.replace(/\s+$/,''));
+      const isArea=/mm²|mm2|mm\^2|cm²/i.test(rl);
+      const mv=rl.match(/(-?\d+(?:\.\d+)?)\s*(mm|cm)\b/i);
+      if(mv && !isArea){ let v=parseFloat(mv[1]); if(/mm/i.test(mv[2])) v=v/10; cur.dims.push(v); }
+      return;
+    }
+    const l=rl.trim(), low=l.toLowerCase();
+    let key=null; for(const [p,k] of B_MATCH){ if(low.includes(p)){ key=k; break; } }
+    let dims=[], self=false, base=l;
+    if(/(cm|mm)/.test(low)){
+      self=true;
+      const isMm=/\bmm\b/.test(low)&&!/\bcm\b/.test(low);
+      base=l.replace(/\s*\(\s*(?:z[\s-]*score\s*[=:]?\s*)?[+-]?\d+(?:\.\d+)?[^)]*\)\s*$/i,'').replace(/\s+$/,'');
+      (base.match(/-?\d+(?:\.\d+)?/g)||[]).forEach(n=>dims.push(isMm?parseFloat(n)/10:parseFloat(n)));
+    }
+    cur={ nameLine:l, base, key, dims, self, raw:[l] };
+    out.push(cur);
+  });
+  return out;
+}
 function bLookup(t,bsa){let oor=false;let b=Math.round(bsa*100)/100;const bmax=Math.round((t.b+t.s*(t.d.length-1))*100)/100;if(b<t.b){b=t.b;oor=true;}if(b>bmax){b=bmax;oor=true;}let i=Math.round((b-t.b)/t.s);i=Math.max(0,Math.min(t.d.length-1,i));return {mean:t.d[i][0],slope:t.d[i][1],oor};}
 function bInterpret(z){const a=Math.abs(z);if(a<=2)return 'normal in size';const sev=a>3?'severely ':'';return sev+(z>0?'dilated':'hypoplastic');}
 </script>
