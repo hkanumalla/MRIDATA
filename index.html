@@ -422,7 +422,7 @@ function generate(skipAssign){
     const haveBSA=!isNaN(bsaB);
     if(bWarnEl && !haveBSA && bItems.some(it=>it.key)) bWarnEl.style.display='block';
     L.push('');
-    L.push('Boston Z-Score');
+    L.push('Measurements:');
     if(!haveBSA) L.push('(enter BSA above for z-scores — none found in the pasted data)');
     /* group blocks by structure key (combine split "1"/"2" measurements), keep first-seen order */
     const order=[], groups={};
