@@ -723,19 +723,29 @@ const B_MATCH=[['distal transverse','DTA'],['transverse aortic arch','DTA'],['tr
    (name flush-left, then indented "N: Length 22.57 mm" rows; mm² areas ignored). */
 function parseBostonBlocks(text){
   const out=[]; let cur=null;
+  const measRe=/(-?\d+(?:\.\d+)?)\s*(mm|cm)\b/i;
+  const isArea=s=>/mm²|mm2|mm\^2|cm²|cm2/i.test(s);
   (text||'').split(/\r?\n/).forEach(rl=>{
     if(!rl.trim()) return;
-    if((/^[\t ]/.test(rl) || /^\s*\d+\s*:/.test(rl)) && cur){   /* indented OR "N:" row → measurement */
-      cur.raw.push(rl.replace(/\s+$/,''));
-      const isArea=/mm²|mm2|mm\^2|cm²/i.test(rl);
-      const mv=rl.match(/(-?\d+(?:\.\d+)?)\s*(mm|cm)\b/i);
-      if(mv && !isArea){ let v=parseFloat(mv[1]); if(/mm/i.test(mv[2])) v=v/10; cur.dims.push(v); }
-      return;
-    }
     const l=rl.trim(), low=l.toLowerCase();
     let key=null; for(const [p,k] of B_MATCH){ if(low.includes(p)){ key=k; break; } }
+    const mv=(!isArea(l)) ? l.match(measRe) : null;   /* a length value on this line (ignore areas) */
+    /* Attach as a measurement of the current vessel when the line carries a value but
+       names no vessel of its own — i.e. it is a sub-row: indented (any whitespace),
+       "N:" numbered, a length/diameter row, or a bare "<number> mm/cm". */
+    const attach = mv && !key && cur && (
+        /^\s/.test(rl) ||
+        /^\s*\d+\s*:/.test(l) ||
+        /\b(length|len|diam|dimension|dist|major|minor)\b/i.test(low) ||
+        /^[-+]?\d+(?:\.\d+)?\s*(mm|cm)\b/i.test(l)
+    );
+    if(attach){
+      cur.raw.push(rl.replace(/\s+$/,''));
+      let v=parseFloat(mv[1]); if(/mm/i.test(mv[2])) v=v/10; cur.dims.push(v);
+      return;
+    }
     let dims=[], self=false, base=l;
-    if(/(cm|mm)/.test(low)){
+    if(mv){                                    /* self-contained line: has a vessel name AND value(s) */
       self=true;
       const isMm=/\bmm\b/.test(low)&&!/\bcm\b/.test(low);
       base=l.replace(/\s*\(\s*(?:z[\s-]*score\s*[=:]?\s*)?[+-]?\d+(?:\.\d+)?[^)]*\)\s*$/i,'').replace(/\s+$/,'');
