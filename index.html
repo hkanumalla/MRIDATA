@@ -433,47 +433,33 @@ function generate(skipAssign){
     if(bsaAuto) bBSAel.placeholder='auto: '+(Math.round(bsaAuto*100)/100);
     if(isNaN(bsaB) && bsaAuto) bsaB=Math.round(bsaAuto*100)/100;
     const haveBSA=!isNaN(bsaB);
-    /* group blocks by structure key (combine split "1"/"2"), keep first-seen order.
-       unlabeled blocks that carry measurements are offered for manual assignment. */
-    const order=[], groups={};
-    bItems.forEach(it=>{
-      if(it.key){ if(!groups[it.key]){ groups[it.key]=[]; order.push({g:it.key}); } groups[it.key].push(it); }
-      else order.push({b:it});
-    });
-    const needsBSA=order.some(o=>o.g && BOSTON[o.g]);
+    /* group blocks by structure NAME (so unrecognized named structures group too);
+       z only for names that map to a Boston regression. */
+    const {order,groups}=bostonGroups(bItems);
+    const needsBSA=order.some(o=>o.g && BOSTON[groups[o.g].key]);
     if(bWarnEl && !haveBSA && needsBSA) bWarnEl.style.display='block';
     L.push('');
     L.push('Measurements:');
     if(!haveBSA && needsBSA) L.push('(enter BSA above for z-scores — none found in the pasted data)');
     order.forEach(o=>{
-      if(o.b){                              /* unrecognized: echo if it has data, skip bare headers */
-        const it=o.b;
-        if(it.dims.length || it.raw.length>1) it.raw.forEach(r=>L.push(r));
+      if(o.raw){                              /* unrecognized/pending: echo if it has data */
+        const it=o.raw;
+        if(it.len.length||it.perim.length||it.area.length||it.raw.length>1) it.raw.forEach(r=>L.push(r));
         return;
       }
-      const key=o.g, isZ=!!BOSTON[key], name=isZ?BOSTON[key].name:NOZ[key];
-      const blocks=groups[key].slice().sort((a,b)=>(a.num||0)-(b.num||0));
-      const dims=[]; blocks.forEach(b=>b.dims.forEach(d=>dims.push(d)));
-      if(!dims.length){ blocks.forEach(b=> b.self?L.push(b.nameLine):b.raw.forEach(r=>L.push(r))); return; }
-      const single=blocks.length===1, self=single&&blocks[0].self;
-      const dfmt=dims.map(d=>(+d.toFixed(2)).toString()).join(' x ');   /* show the edited values faithfully */
-      const label = self?null : name;
-      if(!isZ){                               /* no Boston regression — reformat without a z-score */
-        L.push(self ? blocks[0].base : `${name} (cm): ${dfmt}`);
-        return;
-      }
-      if(!haveBSA){ blocks.forEach(b=> b.self?L.push(b.nameLine):b.raw.forEach(r=>L.push(r))); return; }
+      const G=groups[o.g], key=G.key, isZ=!!BOSTON[key];
+      const base=bLineText(o.g, G);
+      if(!isZ || !G.len.length){ L.push(base); return; }   /* no Boston regression, or nothing to score */
+      if(!haveBSA){ L.push(base); return; }
       if(state.bmode==='avg'){
-        const a=dims.reduce((s,v)=>s+v,0)/dims.length; const r=bZ(key,bsaB,a);
-        L.push(self ? `${blocks[0].base} (z-score = ${r.zs})${r.oor?' [BSA out of range]':''}`
-                    : `${label} (cm): ${dfmt} (z-score = ${r.zs})${r.oor?' [BSA out of range]':''}`);
-        if(Math.abs(parseFloat(r.zs))>=2) bostonAbn.push({name:name, z:r.zs});
+        const a=G.len.reduce((s,v)=>s+v,0)/G.len.length; const r=bZ(key,bsaB,a);
+        L.push(`${base} (z-score = ${r.zs})${r.oor?' [BSA out of range]':''}`);
+        if(Math.abs(parseFloat(r.zs))>=2) bostonAbn.push({name:o.g, z:r.zs});
       } else {
-        const zl=dims.map(d=>bZ(key,bsaB,d)); const oor=zl.some(r=>r.oor);
-        L.push(self ? `${blocks[0].base} (z-score ${zl.map(r=>r.zs).join(', ')})${oor?' [BSA out of range]':''}`
-                    : `${label} (cm): ${dfmt} (z-score ${zl.map(r=>r.zs).join(', ')})${oor?' [BSA out of range]':''}`);
+        const zl=G.len.map(d=>bZ(key,bsaB,d)); const oor=zl.some(r=>r.oor);
+        L.push(`${base} (z-score ${zl.map(r=>r.zs).join(', ')})${oor?' [BSA out of range]':''}`);
         const worst=zl.map(r=>parseFloat(r.zs)).sort((a,b)=>Math.abs(b)-Math.abs(a))[0];
-        if(Math.abs(worst)>=2) bostonAbn.push({name:name, z:worst.toFixed(2)});
+        if(Math.abs(worst)>=2) bostonAbn.push({name:o.g, z:worst.toFixed(2)});
       }
     });
   }
@@ -602,7 +588,7 @@ function renderBostonAssign(pending){
     const cur=bAssign[it.nameLine]||'';
     const unset=!cur?' unset':'';
     const enc=encodeURIComponent(it.nameLine);
-    const vals=it.dims.map(d=>d.toFixed(2)).join(', ')+' cm';
+    const vals=(it.len||[]).map(d=>d.toFixed(2)).join(', ')+' cm';
     h+=`<div class="assignrow${unset}"><span class="vname">${escAttr(it.nameLine)}</span>`+
        `<select data-bname="${enc}" onchange="onBAssign(this)">`+
        opt(cur,'','— select —')+
@@ -630,33 +616,48 @@ function onBAssign(sel){ bAssign[decodeURIComponent(sel.dataset.bname)]=sel.valu
 function formatBoston(){
   const editEl=document.getElementById('bEdit'); if(!editEl) return;
   const raw=(document.getElementById('bDims')||{}).value||'';
-  const items=parseBostonBlocks(raw);
-  const order=[], groups={}, unlabeled=[];
-  items.forEach(it=>{
-    let key=it.key;
-    if(!key && it.dims.length){
-      unlabeled.push(it);
-      const a=bAssign[it.nameLine];
-      if(a==='ignore'){ order.push({raw:it}); return; }
-      if(a && (BOSTON[a]||NOZ[a])) key=a;
-      else { order.push({raw:it}); return; }
-    }
-    if(key){ if(!groups[key]){ groups[key]=[]; order.push({g:key}); } groups[key].push(it); }
-    else order.push({raw:it});
-  });
+  const {order,groups,unlabeled}=bostonGroups(parseBostonBlocks(raw));
   renderBostonAssign(unlabeled);
-  const fmt=v=>v.toFixed(2);
   const lines=[];
   order.forEach(o=>{
-    if(o.raw){ const it=o.raw; if(it.dims.length||it.raw.length>1) it.raw.forEach(r=>lines.push(r)); return; }
-    const key=o.g, name=BOSTON[key]?BOSTON[key].name:NOZ[key];
-    const blocks=groups[key].slice().sort((a,b)=>(a.num||0)-(b.num||0));
-    const dims=[]; blocks.forEach(b=>b.dims.forEach(d=>dims.push(d)));
-    if(!dims.length) return;
-    lines.push(`${name} (cm): ${dims.map(fmt).join(' x ')}`);
+    if(o.raw){ const it=o.raw; if(it.len.length||it.perim.length||it.area.length||it.raw.length>1) it.raw.forEach(r=>lines.push(r)); return; }
+    lines.push(bLineText(o.g, groups[o.g]));
   });
   editEl.value=lines.join('\n');
   generate();
+}
+/* Group parsed Boston blocks by structure name; merge length/perimeter/area across
+   the CVI "Line/Perimeter/Area contours" sections. z-lookup key comes from the name.
+   Purely numeric headers (e.g. "13/8/4") with values become assignment candidates. */
+function bostonGroups(items){
+  const order=[], groups={}, unlabeled=[];
+  items.forEach(it=>{
+    const hasAny = it.len.length||it.perim.length||it.area.length;
+    if(!hasAny){ order.push({raw:it}); return; }
+    let gname=it.baseName, zkey=it.key;
+    const named=/[a-z]/i.test(gname);
+    if(!zkey && !named){                        /* numeric header -> needs manual assignment */
+      unlabeled.push(it);
+      const a=bAssign[it.nameLine];
+      if(a==='ignore'){ order.push({raw:it}); return; }
+      if(a && (BOSTON[a]||NOZ[a])){ zkey=a; gname=BOSTON[a]?BOSTON[a].name:NOZ[a]; }
+      else { order.push({raw:it}); return; }
+    }
+    if(!groups[gname]){ groups[gname]={key:zkey, blocks:[]}; order.push({g:gname}); }
+    groups[gname].blocks.push(it);
+  });
+  for(const g in groups){ const G=groups[g]; G.blocks.sort((a,b)=>(a.num||0)-(b.num||0));
+    G.len=[]; G.perim=[]; G.area=[];
+    G.blocks.forEach(b=>{ b.len.forEach(v=>G.len.push(v)); b.perim.forEach(v=>G.perim.push(v)); b.area.forEach(v=>G.area.push(v)); }); }
+  return {order, groups, unlabeled};
+}
+/* one clean line for a grouped structure: "Name (cm): L | perimeter (cm): P | area (cm²): A" */
+function bLineText(name, G){
+  const f=v=>(+v.toFixed(2)).toString();
+  let s=`${name} (cm): ${G.len.map(f).join(' x ')}`;
+  if(G.perim.length) s+=` | perimeter (cm): ${G.perim.map(f).join(' x ')}`;
+  if(G.area.length)  s+=` | area (${G.area[0].unit}): ${G.area.map(a=>f(a.v)).join(' x ')}`;
+  return s;
 }
 
 function renderAudit(rows){
@@ -829,39 +830,55 @@ const B_MATCH=[
 ];
 /* Parses single-line ("Ascending aorta 2.1 cm x 2.2 cm") OR CVI multi-line
    (name flush-left, then indented "N: Length 22.57 mm" rows; mm² areas ignored). */
+/* base structure name for grouping: strips a CVI "N on VIEW :" suffix or a "(cm): …" tail */
+function bBaseName(l){
+  let m=l.match(/^(.*?)\s*\((?:cm|mm)\)\s*:/i); if(m) return m[1].trim();
+  let b=l.replace(/\s*\d+\s+on\s+\S+.*$/i,'').replace(/[:\s]+$/,'').trim();
+  return b || l.replace(/[:\s]+$/,'').trim();
+}
+/* Parse pasted CVI vessel data into blocks. Each block carries the structure's
+   length[], perimeter[] and area[] values (categorised by the "length:/perimeter:/area:"
+   sub-row label, or by the cm²/mm² unit for areas). "Line/Perimeter/Area contours"
+   section headers are skipped; measurements attach to the block above them. */
 function parseBostonBlocks(text){
   const out=[]; let cur=null;
   const measRe=/(-?\d+(?:\.\d+)?)\s*(mm|cm)\b/i;
-  const isArea=s=>/mm²|mm2|mm\^2|cm²|cm2/i.test(s);
+  const areaU=s=>/mm²|mm2|mm\^2|cm²|cm2/i.test(s);
+  const typeOf=s=>/perimeter|circumf/i.test(s)?'perim':(/\barea\b/i.test(s)||areaU(s))?'area':'len';
   (text||'').split(/\r?\n/).forEach(rl=>{
     if(!rl.trim()) return;
     const l=rl.trim(), low=l.toLowerCase();
+    if(/\bcontours?\b/i.test(l) && !/\d/.test(l)){ cur=null; return; }   /* section header, e.g. "Perimeter contours" */
     let key=null; for(const [p,k] of B_MATCH){ if(low.includes(p)){ key=k; break; } }
-    const mv=(!isArea(l)) ? l.match(measRe) : null;   /* a length value on this line (ignore areas) */
-    const hasUnit=(!isArea(l)) && /\b(cm|mm)\b/i.test(l);   /* a cm/mm unit anywhere, incl. "(cm):" */
-    /* Attach as a measurement of the current vessel when the line carries a value but
-       names no vessel of its own — i.e. it is a sub-row: indented (any whitespace),
-       "N:" numbered, a length/diameter row, or a bare "<number> mm/cm". */
-    const attach = mv && !key && cur && (
-        /^\s/.test(rl) ||
-        /^\s*\d+\s*:/.test(l) ||
-        /\b(length|len|diam|dimension|dist|major|minor)\b/i.test(low) ||
-        /^[-+]?\d+(?:\.\d+)?\s*(mm|cm)\b/i.test(l)
+    const hasUnit=/\b(cm|mm)\b/i.test(l);
+    const mv=(!areaU(l)) ? l.match(measRe) : null;
+    /* a sub-row measurement attaching to the current block (no vessel name of its own) */
+    const attach = !key && cur && hasUnit && !/\((?:cm|mm)\)\s*:/i.test(l) && (
+        /^\s/.test(rl) || /^\s*\d+\s*:/.test(l) ||
+        /\b(length|len|diam|dimension|dist|major|minor|perimeter|circumf|area)\b/i.test(low) ||
+        /^[-+]?\d+(?:\.\d+)?\s*(mm|cm)/i.test(l)
     );
     if(attach){
       cur.raw.push(rl.replace(/\s+$/,''));
-      let v=parseFloat(mv[1]); if(/mm/i.test(mv[2])) v=v/10; cur.dims.push(v);
+      const t=typeOf(l);
+      if(t==='area'){ const am=l.match(/(-?\d+(?:\.\d+)?)\s*(mm|cm)/i); if(am) cur.area.push({v:parseFloat(am[1]),unit:/mm/i.test(am[2])?'mm²':'cm²'}); }
+      else if(mv){ let v=parseFloat(mv[1]); if(/mm/i.test(mv[2])) v=v/10; cur[t].push(v); }
       return;
     }
-    let dims=[], self=false, base=l;
-    if(hasUnit){                               /* self-contained line: a value + unit on one line */
+    let len=[], perim=[], area=[], self=false, base=l;
+    if(hasUnit){                               /* self-contained line: value(s)+unit on one line (incl. bEdit format) */
       self=true;
-      const isMm=/\bmm\b/.test(low)&&!/\bcm\b/.test(low);
       base=l.replace(/\s*\(\s*(?:z[\s-]*score\s*[=:]?\s*)?[+-]?\d+(?:\.\d+)?[^)]*\)\s*$/i,'').replace(/\s+$/,'');
-      (base.match(/-?\d+(?:\.\d+)?/g)||[]).forEach(n=>dims.push(isMm?parseFloat(n)/10:parseFloat(n)));
+      base.split(/\s*[|;]\s*/).forEach(seg=>{      /* segments: length | perimeter | area */
+        const t=typeOf(seg), isMm=/\bmm\b/i.test(seg)&&!/\bcm\b/i.test(seg);
+        const nums=(seg.match(/-?\d+(?:\.\d+)?/g)||[]).map(parseFloat);
+        if(t==='area') nums.forEach(v=>area.push({v,unit:isMm?'mm²':'cm²'}));
+        else if(t==='perim') nums.forEach(v=>perim.push(isMm?v/10:v));
+        else nums.forEach(v=>len.push(isMm?v/10:v));
+      });
     }
     const numM=(!self)?l.match(/\b(\d+)\b/):null;
-    cur={ nameLine:l, base, key, dims, self, num:numM?parseInt(numM[1],10):0, raw:[l] };
+    cur={ nameLine:l, baseName:bBaseName(l), base, key, len, perim, area, self, num:numM?parseInt(numM[1],10):0, raw:[l] };
     out.push(cur);
   });
   return out;
