@@ -22,7 +22,7 @@
   header .version{margin:2px 0 0;font-size:11px;font-weight:400;font-style:italic;opacity:.85}
   .wrap{max-width:1180px;margin:0 auto;padding:20px 24px 60px}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
-  @media(max-width:900px){.grid{grid-template-columns:1fr}}
+  @media(max-width:900px){.grid{grid-template-columns:1fr}.bcols{grid-template-columns:1fr !important}}
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;box-shadow:0 1px 2px rgba(16,40,64,.04)}
   .card h2{margin:0 0 12px;font-size:14px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
   .controls{display:flex;flex-wrap:wrap;gap:18px;margin-bottom:16px}
@@ -162,8 +162,17 @@
       <div class="ctl"><label>BSA (m&sup2;)</label><input type="text" id="bBSA" class="otherbox" style="min-width:120px" placeholder="auto from data" oninput="generate()"></div>
     </div>
     <div id="bBSAwarn" style="display:none;margin:0 0 12px;padding:10px 12px;border-radius:8px;background:#fff4e5;border:1px solid #f0a020;color:#8a4b00;font-weight:600">&#9888;&nbsp; Enter the patient's BSA in the box above to compute z-scores &mdash; no BSA was found in the pasted data.</div>
-    <textarea id="bDims" spellcheck="false" style="min-height:120px" placeholder="Paste vessel dimensions from CVI, one per line — e.g.&#10;Ascending aorta 2.1 cm x 2.2 cm&#10;Aortic root 2.6 cm&#10;Main pulmonary artery 2.0 x 2.1 cm" oninput="generate()"></textarea>
-    <p class="note">Recognized (with z-scores): aortic root, ascending aorta, distal transverse aortic arch, aortic isthmus, main / right / left pulmonary artery. Aortic segments without a Boston regression (descending / diaphragmatic / distal ascending) are reformatted without a z-score. Unlabeled measurement blocks (e.g. a header followed by 1&ndash;3 lengths) prompt you to assign them below. <b>Average</b> gives one z from the mean of the dimensions; <b>Individual</b> gives a z for each. BSA is taken from the pasted ventricular data (absolute &divide; indexed) if present, otherwise type it above.</p>
+    <div class="bcols" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start">
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Raw dimensions (paste CVI)</div>
+        <textarea id="bDims" spellcheck="false" style="min-height:180px" placeholder="Paste vessel dimensions from CVI here…&#10;Ascending aorta 2.1 cm x 2.2 cm&#10;Aortic root 2.6 cm" oninput="formatBoston()"></textarea>
+      </div>
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Formatted &mdash; edit numbers here</div>
+        <textarea id="bEdit" spellcheck="false" style="min-height:180px" placeholder="Formatted measurements appear here after you paste. Round or adjust the numbers, then the z-scores below update from these edited values." oninput="generate()"></textarea>
+      </div>
+    </div>
+    <p class="note">Paste raw CVI on the left; it auto-formats into the editable box on the right. <b>Adjust or round the numbers there</b> &mdash; the z-scores in the report are computed from the edited box. Recognized (with z-scores): aortic root, ascending aorta, distal transverse aortic arch, aortic isthmus, main / right / left pulmonary artery. Aortic segments without a Boston regression (descending / diaphragmatic / distal ascending) are reformatted without a z-score. Unlabeled blocks (e.g. a header followed by 1&ndash;3 lengths) prompt you to assign them (usually aortic root). <b>Average</b> gives one z from the mean of the dimensions; <b>Individual</b> gives a z for each. BSA is taken from the pasted ventricular data (absolute &divide; indexed) if present, otherwise type it above.</p>
   </div>
 
   <div class="card" id="bAssignCard" style="display:none;margin-top:20px;border-color:#f0d8a8;background:#fffdf7"></div>
@@ -287,7 +296,7 @@ function autoSlot(name){
 /* ---------- report builder ---------- */
 function generate(skipAssign){
   const raw=document.getElementById('input').value;
-  const bdimsVal=(document.getElementById('bDims')||{}).value||'';
+  const bdimsVal=(document.getElementById('bEdit')||{}).value||'';
   if(!raw.trim() && !bdimsVal.trim()){ document.getElementById('output').textContent='Paste the MRI data first.'; return; }
   const lines=raw.split(/\r?\n/).map(s=>s.trim());
   const M=parseVent(lines);
@@ -426,20 +435,11 @@ function generate(skipAssign){
     const haveBSA=!isNaN(bsaB);
     /* group blocks by structure key (combine split "1"/"2"), keep first-seen order.
        unlabeled blocks that carry measurements are offered for manual assignment. */
-    const order=[], groups={}, unlabeled=[];
+    const order=[], groups={};
     bItems.forEach(it=>{
-      let key=it.key;
-      if(!key && it.dims.length){                 /* unlabeled measurement block */
-        unlabeled.push(it);
-        const a=bAssign[it.nameLine];
-        if(a==='ignore'){ order.push({b:it}); return; }
-        if(a && (BOSTON[a]||NOZ[a])) key=a;        /* user assigned it to a structure */
-        else { order.push({b:it}); return; }       /* still pending — echo for now */
-      }
-      if(key){ if(!groups[key]){ groups[key]=[]; order.push({g:key}); } groups[key].push(it); }
+      if(it.key){ if(!groups[it.key]){ groups[it.key]=[]; order.push({g:it.key}); } groups[it.key].push(it); }
       else order.push({b:it});
     });
-    renderBostonAssign(unlabeled);
     const needsBSA=order.some(o=>o.g && BOSTON[o.g]);
     if(bWarnEl && !haveBSA && needsBSA) bWarnEl.style.display='block';
     L.push('');
@@ -456,7 +456,7 @@ function generate(skipAssign){
       const dims=[]; blocks.forEach(b=>b.dims.forEach(d=>dims.push(d)));
       if(!dims.length){ blocks.forEach(b=> b.self?L.push(b.nameLine):b.raw.forEach(r=>L.push(r))); return; }
       const single=blocks.length===1, self=single&&blocks[0].self;
-      const dfmt=dims.map(d=>d.toFixed(1)).join(' x ');
+      const dfmt=dims.map(d=>(+d.toFixed(2)).toString()).join(' x ');   /* show the edited values faithfully */
       const label = self?null : name;
       if(!isZ){                               /* no Boston regression — reformat without a z-score */
         L.push(self ? blocks[0].base : `${name} (cm): ${dfmt}`);
@@ -620,7 +620,44 @@ function renderBostonAssign(pending){
   });
   card.innerHTML=h; card.style.display='block';
 }
-function onBAssign(sel){ bAssign[decodeURIComponent(sel.dataset.bname)]=sel.value; generate(); }
+function onBAssign(sel){ bAssign[decodeURIComponent(sel.dataset.bname)]=sel.value; formatBoston(); }
+
+/* Re-format the raw CVI paste into the editable "Formatted" box (clean labeled lines,
+   no z-scores). Recognized structures and reformat-only aortic segments become one
+   line each; unlabeled measurement blocks stay verbatim and trigger the assign prompt.
+   Current assignments are applied, so an assigned block (e.g. 13/8/4 -> aortic root)
+   is rewritten under its structure name. Z-scores are then computed from this box. */
+function formatBoston(){
+  const editEl=document.getElementById('bEdit'); if(!editEl) return;
+  const raw=(document.getElementById('bDims')||{}).value||'';
+  const items=parseBostonBlocks(raw);
+  const order=[], groups={}, unlabeled=[];
+  items.forEach(it=>{
+    let key=it.key;
+    if(!key && it.dims.length){
+      unlabeled.push(it);
+      const a=bAssign[it.nameLine];
+      if(a==='ignore'){ order.push({raw:it}); return; }
+      if(a && (BOSTON[a]||NOZ[a])) key=a;
+      else { order.push({raw:it}); return; }
+    }
+    if(key){ if(!groups[key]){ groups[key]=[]; order.push({g:key}); } groups[key].push(it); }
+    else order.push({raw:it});
+  });
+  renderBostonAssign(unlabeled);
+  const fmt=v=>v.toFixed(2);
+  const lines=[];
+  order.forEach(o=>{
+    if(o.raw){ const it=o.raw; if(it.dims.length||it.raw.length>1) it.raw.forEach(r=>lines.push(r)); return; }
+    const key=o.g, name=BOSTON[key]?BOSTON[key].name:NOZ[key];
+    const blocks=groups[key].slice().sort((a,b)=>(a.num||0)-(b.num||0));
+    const dims=[]; blocks.forEach(b=>b.dims.forEach(d=>dims.push(d)));
+    if(!dims.length) return;
+    lines.push(`${name} (cm): ${dims.map(fmt).join(' x ')}`);
+  });
+  editEl.value=lines.join('\n');
+  generate();
+}
 
 function renderAudit(rows){
   const bandLbl=state.band==='adult'?'Adult 20–65':'Pediatric 8–17';
@@ -664,9 +701,14 @@ async function copyOut(){
   }
 }
 function clearAll(){ document.getElementById('input').value='';
+  const bd=document.getElementById('bDims'), be=document.getElementById('bEdit');
+  if(bd) bd.value=''; if(be) be.value='';
   for(const k in assign) delete assign[k];
   for(const k in assignOther) delete assignOther[k];
-  document.getElementById('assignCard').style.display='none'; }
+  for(const k in bAssign) delete bAssign[k];
+  document.getElementById('assignCard').style.display='none';
+  const bac=document.getElementById('bAssignCard'); if(bac){bac.style.display='none';bac.innerHTML='';}
+  generate(); }
 
 const SAMPLE=`SAX3D Stack LV Function
 EDV:
@@ -796,6 +838,7 @@ function parseBostonBlocks(text){
     const l=rl.trim(), low=l.toLowerCase();
     let key=null; for(const [p,k] of B_MATCH){ if(low.includes(p)){ key=k; break; } }
     const mv=(!isArea(l)) ? l.match(measRe) : null;   /* a length value on this line (ignore areas) */
+    const hasUnit=(!isArea(l)) && /\b(cm|mm)\b/i.test(l);   /* a cm/mm unit anywhere, incl. "(cm):" */
     /* Attach as a measurement of the current vessel when the line carries a value but
        names no vessel of its own — i.e. it is a sub-row: indented (any whitespace),
        "N:" numbered, a length/diameter row, or a bare "<number> mm/cm". */
@@ -811,7 +854,7 @@ function parseBostonBlocks(text){
       return;
     }
     let dims=[], self=false, base=l;
-    if(mv){                                    /* self-contained line: has a vessel name AND value(s) */
+    if(hasUnit){                               /* self-contained line: a value + unit on one line */
       self=true;
       const isMm=/\bmm\b/.test(low)&&!/\bcm\b/.test(low);
       base=l.replace(/\s*\(\s*(?:z[\s-]*score\s*[=:]?\s*)?[+-]?\d+(?:\.\d+)?[^)]*\)\s*$/i,'').replace(/\s+$/,'');
