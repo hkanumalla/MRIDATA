@@ -86,6 +86,10 @@
 
   <div class="controls">
     <div class="ctl">
+      <label>BSA (m&sup2;)</label>
+      <input type="text" id="topBSA" class="otherbox" style="min-width:100px" placeholder="for z-scores" oninput="generate()">
+    </div>
+    <div class="ctl">
       <label>Age range</label>
       <div class="seg" id="band">
         <button data-v="ped" class="on">Pediatric (8&ndash;17)</button>
@@ -258,6 +262,37 @@ function parseVent(lines){
 }
 
 /* ============================================================
+   FREE-TEXT SHORTHAND  (e.g. "RVEDVi: 188", "LVEF 55", "RVEDV = 200")
+   Recognises any z-scoreable ventricular metric typed on one line.
+   Absolute (non-indexed) values are divided by BSA before scoring.
+   ============================================================ */
+const FT_METRICS=[
+  {rx:/^(lvedvi|lv\s*edv\s*i)\b/i,            zk:'LVEDVi', abs:false, disp:'LVEDVi'},
+  {rx:/^(lvedv|lv\s*edv)\b/i,                 zk:'LVEDVi', abs:true,  disp:'LVEDV'},
+  {rx:/^(lvesvi|lv\s*esv\s*i)\b/i,            zk:'LVESVi', abs:false, disp:'LVESVi'},
+  {rx:/^(lvesv|lv\s*esv)\b/i,                 zk:'LVESVi', abs:true,  disp:'LVESV'},
+  {rx:/^(lvmassi|lvmi|lv\s*mass\s*i(?:ndex)?)\b/i, zk:'LVmassi', abs:false, disp:'LV mass index'},
+  {rx:/^(lvmass|lvm|lv\s*mass)\b/i,           zk:'LVmassi', abs:true,  disp:'LV mass'},
+  {rx:/^(lvef|lv\s*ef)\b/i,                   zk:'LVEF', abs:false, pct:true, disp:'LVEF'},
+  {rx:/^(rvedvi|rv\s*edv\s*i)\b/i,            zk:'RVEDVi', abs:false, disp:'RVEDVi'},
+  {rx:/^(rvedv|rv\s*edv)\b/i,                 zk:'RVEDVi', abs:true,  disp:'RVEDV'},
+  {rx:/^(rvesvi|rv\s*esv\s*i)\b/i,            zk:'RVESVi', abs:false, disp:'RVESVi'},
+  {rx:/^(rvesv|rv\s*esv)\b/i,                 zk:'RVESVi', abs:true,  disp:'RVESV'},
+  {rx:/^(rvef|rv\s*ef)\b/i,                   zk:'RVEF', abs:false, pct:true, disp:'RVEF'}
+];
+function parseFreeText(raw){
+  const out=[];
+  (raw||'').split(/\r?\n/).forEach(line=>{
+    const l=line.trim(); if(!l) return;
+    for(const m of FT_METRICS){
+      const mm=l.match(m.rx);
+      if(mm){ const v=firstNum(l.slice(mm[0].length)); if(v!=null) out.push({disp:m.disp, zk:m.zk, val:v, abs:m.abs}); break; }
+    }
+  });
+  return out;
+}
+
+/* ============================================================
    FLOW PARSER  (Flow Analysis blocks)
    ============================================================ */
 function parseFlows(lines){
@@ -301,6 +336,7 @@ function generate(skipAssign){
   const lines=raw.split(/\r?\n/).map(s=>s.trim());
   const M=parseVent(lines);
   const blocks=parseFlows(lines);
+  const ft=parseFreeText(raw);
 
   /* map flow blocks to slots */
   const slots={}; const ambiguous=[]; const customFlows=[];
@@ -366,58 +402,78 @@ function generate(skipAssign){
   const regLine =(label,v)=> (v&&v.regurg!=null)?`${label}: ${freg(v)}`:null;
   const pushIf=x=>{ if(x!=null) L.push(x); };
 
-  L.push('Ventricular Data:');
-  L.push(zPair('LVEDV (ml)/ (Indexed to BSA)','LVEDVa','LVEDVi','LVEDVi'));
-  L.push(zPairIf('LVESV (ml)/ (Indexed to BSA)','LVESVa','LVESVi','LVESVi'));
-  L.push(pairOnly('LVSV (ml)/ (Indexed to BSA)','LVSVa','LVSVi'));
-  L.push(ef('LV EF (%)','LVEF','LVEF'));
-  L.push(one('LV CO (l/min)','LVCO'));
-  L.push(one('LV CI (l/min/m2)','LVCI'));
-  L.push(zPair('LV mass (gm)/ (Indexed to BSA)','LVmassa','LVmassi','LVmassi'));
-  L.push('');
-  L.push(zPair('RVEDV (ml)/ (Indexed to BSA)','RVEDVa','RVEDVi','RVEDVi'));
-  L.push(zPairIf('RVESV (ml)/ (Indexed to BSA)','RVESVa','RVESVi','RVESVi'));
-  L.push(pairOnly('RVSV (ml)/ (Indexed to BSA)','RVSVa','RVSVi'));
-  L.push(ef('RVEF (%)','RVEF','RVEF'));
-  L.push(one('RV CO (l/min)','RVCO'));
-  L.push(one('RV CI (l/min/m2)','RVCI'));
-  L.push('');
-  L.push('Flow Data');
-  pushIf(flowLine('Aortic root',slots.AO));
-  pushIf(flowLine('Main Pulmonary Artery',slots.MPA));
-  pushIf(flowLine('Right Pulmonary Artery',slots.RPA));
-  pushIf(flowLine('Left Pulmonary Artery',slots.LPA));
-  customFlows.forEach(c=>pushIf(flowLine(c.label,c.v)));
-  if(totQp) L.push(`Total Qp based on QpR+QpL = ${totQp}`);
-  if(qpqsE) L.push(`Qp:Qs based on effective flows (MPA/Aorta) = ${qpqsE}`);
-
-  if(state.ml==='yes'){
-    const mlLines=[
-      mlLine('Aortic root',slots.AO),
-      mlLine('Ascending aorta',slots.ASCAO),
-      mlLine('Main Pulmonary Artery',slots.MPA),
-      mlLine('Right Pulmonary Artery',slots.RPA),
-      mlLine('Left Pulmonary Artery',slots.LPA),
-      mlLine('Tricuspid Valve',slots.TV),
-      mlLine('Mitral Valve',slots.MV),
-      mlLine('Descending Aorta (level of diaphragm)',slots.DAO)
-    ];
-    customFlows.forEach(c=>mlLines.push(mlLine(c.label,c.v)));
-    const present=mlLines.filter(x=>x!=null);
-    if(present.length){ L.push(''); L.push('Flow Volumes (mL)'); present.forEach(x=>L.push(x)); }
+  /* free-text quick z-scores, e.g. typing "RVEDVi: 188" or "RVEDV 200" */
+  const topBSAel=document.getElementById('topBSA');
+  const topBSA=parseFloat((topBSAel||{}).value);
+  let ftNeedsBSA=false;
+  if(ft.length){
+    L.push('Z-Scores');
+    ft.forEach(f=>{
+      const norm=NORM[state.band]&&NORM[state.band][state.sex]&&NORM[state.band][state.sex][f.zk];
+      if(f.abs && isNaN(topBSA)){ ftNeedsBSA=true; L.push(`${f.disp}: ${f.val} — enter BSA (box at top) to index and score`); return; }
+      const idx=f.abs?(f.val/topBSA):f.val;
+      if(!norm){ L.push(`${f.disp}: ${f.val} — no z-score for ${state.band==='ped'?'pediatric':'adult'} ${state.sex==='M'?'male':'female'}`); return; }
+      const z=(idx-norm.m)/norm.s, zs=fmtZ(z);
+      const val=f.abs?`${f.val} → indexed ${(+idx.toFixed(1))}`:`${f.val}`;
+      L.push(`${f.disp}: ${val}  (z: ${zs}; mean +/- SD: ${norm.m} +/- ${norm.s})`);
+      audit.push([f.disp,(+idx.toFixed(2)),norm.m,norm.s,z,zs]);
+    });
+    L.push('');
   }
+  if(topBSAel) topBSAel.style.boxShadow = ftNeedsBSA ? '0 0 0 2px rgba(192,57,43,.6)' : '';
+  if(topBSAel) topBSAel.style.borderColor = ftNeedsBSA ? 'var(--bad)' : '';
 
-  const fractions=[
-    regLine('Pulmonary Regurgitation Fraction (%)',slots.MPA),
-    regLine('Aortic Regurgitant Fraction (%)',slots.AO),
-    regLine('RPA Regurgitant Fraction (%)',slots.RPA),
-    regLine('LPA Regurgitant Fraction (%)',slots.LPA),
-    regLine('Tricuspid Valve Regurgitant Fraction (%)',slots.TV),
-    regLine('Mitral Valve Regurgitant Fraction (%)',slots.MV)
+  if(Object.keys(M).length){
+    L.push('Ventricular Data:');
+    L.push(zPair('LVEDV (ml)/ (Indexed to BSA)','LVEDVa','LVEDVi','LVEDVi'));
+    L.push(zPairIf('LVESV (ml)/ (Indexed to BSA)','LVESVa','LVESVi','LVESVi'));
+    L.push(pairOnly('LVSV (ml)/ (Indexed to BSA)','LVSVa','LVSVi'));
+    L.push(ef('LV EF (%)','LVEF','LVEF'));
+    L.push(one('LV CO (l/min)','LVCO'));
+    L.push(one('LV CI (l/min/m2)','LVCI'));
+    L.push(zPair('LV mass (gm)/ (Indexed to BSA)','LVmassa','LVmassi','LVmassi'));
+    L.push('');
+    L.push(zPair('RVEDV (ml)/ (Indexed to BSA)','RVEDVa','RVEDVi','RVEDVi'));
+    L.push(zPairIf('RVESV (ml)/ (Indexed to BSA)','RVESVa','RVESVi','RVESVi'));
+    L.push(pairOnly('RVSV (ml)/ (Indexed to BSA)','RVSVa','RVSVi'));
+    L.push(ef('RVEF (%)','RVEF','RVEF'));
+    L.push(one('RV CO (l/min)','RVCO'));
+    L.push(one('RV CI (l/min/m2)','RVCI'));
+    L.push('');
+  }
+  /* one shared list of flow structures — every section is built from this, so a
+     measured ROI appears in Flow Data, Flow Volumes AND Flow Fractions consistently.
+     Each line builder returns null when that ROI wasn't pasted, so it's simply omitted. */
+  const flowStructs=[
+    {data:'Aortic root',                           frac:'Aortic Regurgitant Fraction (%)',           v:slots.AO},
+    {data:'Ascending aorta',                       frac:'Ascending Aorta Regurgitant Fraction (%)',  v:slots.ASCAO},
+    {data:'Main Pulmonary Artery',                 frac:'Pulmonary Regurgitation Fraction (%)',      v:slots.MPA},
+    {data:'Right Pulmonary Artery',                frac:'RPA Regurgitant Fraction (%)',              v:slots.RPA},
+    {data:'Left Pulmonary Artery',                 frac:'LPA Regurgitant Fraction (%)',              v:slots.LPA},
+    {data:'Tricuspid Valve',                       frac:'Tricuspid Valve Regurgitant Fraction (%)',  v:slots.TV},
+    {data:'Mitral Valve',                          frac:'Mitral Valve Regurgitant Fraction (%)',     v:slots.MV},
+    {data:'Descending Aorta (level of diaphragm)', frac:'Descending Aorta Regurgitant Fraction (%)', v:slots.DAO}
   ];
-  customFlows.forEach(c=>fractions.push(regLine(`${c.label} Regurgitant Fraction (%)`,c.v)));
-  const fracPresent=fractions.filter(x=>x!=null);
-  if(fracPresent.length){ L.push(''); L.push('Flow Fractions'); fracPresent.forEach(x=>L.push(x)); }
+
+  if(blocks.length){
+    L.push('Flow Data');
+    flowStructs.forEach(s=>pushIf(flowLine(s.data,s.v)));
+    customFlows.forEach(c=>pushIf(flowLine(c.label,c.v)));
+    if(totQp) L.push(`Total Qp based on QpR+QpL = ${totQp}`);
+    if(qpqsE) L.push(`Qp:Qs based on effective flows (MPA/Aorta) = ${qpqsE}`);
+
+    if(state.ml==='yes'){
+      const mlLines=flowStructs.map(s=>mlLine(s.data,s.v));
+      customFlows.forEach(c=>mlLines.push(mlLine(c.label,c.v)));
+      const present=mlLines.filter(x=>x!=null);
+      if(present.length){ L.push(''); L.push('Flow Volumes (mL)'); present.forEach(x=>L.push(x)); }
+    }
+
+    const fractions=flowStructs.map(s=>regLine(s.frac,s.v));
+    customFlows.forEach(c=>fractions.push(regLine(`${c.label} Regurgitant Fraction (%)`,c.v)));
+    const fracPresent=fractions.filter(x=>x!=null);
+    if(fracPresent.length){ L.push(''); L.push('Flow Fractions'); fracPresent.forEach(x=>L.push(x)); }
+  }
 
   /* ---- Boston Z-Score (last section) ---- */
   const bostonAbn=[];
@@ -432,6 +488,7 @@ function generate(skipAssign){
     else if(M.RVEDVa!=null && M.RVEDVi) bsaAuto=M.RVEDVa/M.RVEDVi;
     if(bsaAuto) bBSAel.placeholder='auto: '+(Math.round(bsaAuto*100)/100);
     if(isNaN(bsaB) && bsaAuto) bsaB=Math.round(bsaAuto*100)/100;
+    if(isNaN(bsaB) && !isNaN(topBSA)) bsaB=topBSA;   /* fall back to the top BSA box */
     const haveBSA=!isNaN(bsaB);
     /* group blocks by structure NAME (so unrecognized named structures group too);
        z only for names that map to a Boston regression. */
@@ -613,16 +670,26 @@ function onBAssign(sel){ bAssign[decodeURIComponent(sel.dataset.bname)]=sel.valu
    line each; unlabeled measurement blocks stay verbatim and trigger the assign prompt.
    Current assignments are applied, so an assigned block (e.g. 13/8/4 -> aortic root)
    is rewritten under its structure name. Z-scores are then computed from this box. */
+/* preferred display order (proximal -> distal); structures not listed fall to the end */
+function bOrderRank(name){
+  const n=(name||'').toLowerCase();
+  const seq=['aortic root','aao at rpa','ascending','distal transverse','transverse arch','transverse aortic arch',
+    'isthmus','proximal thoracic descending','proximal descending','mid-thoracic descending','mid thoracic descending',
+    'mid-thoracic','mid thoracic','mid descending','descending aorta at diaphragm','diaphragm','descending',
+    'main pulmonary','mpa','left pulmonary','lpa','right pulmonary','rpa'];
+  for(let i=0;i<seq.length;i++){ if(n.includes(seq[i])) return i; }
+  return 999;
+}
 function formatBoston(){
   const editEl=document.getElementById('bEdit'); if(!editEl) return;
   const raw=(document.getElementById('bDims')||{}).value||'';
   const {order,groups,unlabeled}=bostonGroups(parseBostonBlocks(raw));
   renderBostonAssign(unlabeled);
+  const gEntries=order.filter(o=>o.g).sort((a,b)=>bOrderRank(a.g)-bOrderRank(b.g));   /* fixed clinical order */
+  const rawEntries=order.filter(o=>o.raw);
   const lines=[];
-  order.forEach(o=>{
-    if(o.raw){ const it=o.raw; if(it.len.length||it.perim.length||it.area.length||it.raw.length>1) it.raw.forEach(r=>lines.push(r)); return; }
-    lines.push(bLineText(o.g, groups[o.g]));
-  });
+  gEntries.forEach(o=>lines.push(bLineText(o.g, groups[o.g])));
+  rawEntries.forEach(o=>{ const it=o.raw; if(it.len.length||it.perim.length||it.area.length||it.raw.length>1) it.raw.forEach(r=>lines.push(r)); });
   editEl.value=lines.join('\n');
   generate();
 }
