@@ -138,6 +138,13 @@
 
     <div class="card">
       <h2>2 &middot; Finished report</h2>
+      <div id="qsChoice" style="display:none;margin-bottom:12px;padding:10px 12px;border-radius:8px;background:#fff4e5;border:1px solid #f0a020;color:#8a4b00;font-size:12.5px">
+        <b>Qp:Qs systemic flow</b> &mdash; both aortic root and ascending aorta flows were pasted. Which should Qp:Qs use?
+        <div class="seg" id="qsSeg" style="margin-top:8px">
+          <button data-v="AO" class="on">Aortic root</button>
+          <button data-v="ASCAO">Ascending aorta</button>
+        </div>
+      </div>
       <pre class="output" id="output">Your generated report will appear here.</pre>
       <div class="miss" id="miss"></div>
       <div class="miss" id="sanity" style="display:none"></div>
@@ -202,7 +209,7 @@ const NORM = {
 };
 
 /* ---------- UI state ---------- */
-const state = { band:'ped', sex:'F', round:'round', rf:'exact', ml:'no', bmode:'avg' };
+const state = { band:'ped', sex:'F', round:'round', rf:'exact', ml:'no', bmode:'avg', qsSource:'AO' };
 const assign = {};       /* vessel name -> slot chosen in dropdown (persists across regenerates) */
 const assignOther = {};  /* vessel name -> custom label typed when "Other" is chosen */
 const bAssign = {};      /* unlabeled Boston block nameLine -> structure key chosen */
@@ -215,7 +222,7 @@ function wireSeg(id,key){
       if(document.getElementById('input').value.trim()) generate(); };
   });
 }
-wireSeg('band','band'); wireSeg('sex','sex'); wireSeg('round','round'); wireSeg('rf','rf'); wireSeg('ml','ml');
+wireSeg('band','band'); wireSeg('sex','sex'); wireSeg('round','round'); wireSeg('rf','rf'); wireSeg('ml','ml'); wireSeg('qsSeg','qsSource');
 
 /* ---------- helpers ---------- */
 function firstNum(str){ const m=(str||'').match(/-?\d+(?:\.\d+)?/); return m?parseFloat(m[0]):null; }
@@ -391,7 +398,13 @@ function generate(skipAssign){
   const freg=v=>{ if(!v||v.regurg==null) return ''; if(v.regurg<2) return '<2'; return state.rf==='round'? String(Math.round(v.regurg)) : num(v.regurg); };
   const rpaT=slots.RPA?slots.RPA.total:null, lpaT=slots.LPA?slots.LPA.total:null;
   const mpaE=slots.MPA?slots.MPA.eff:null;
-  const aoE =slots.AO ?slots.AO.eff:null;
+  /* Qp:Qs systemic flow: if BOTH aortic root and ascending aorta flows are present, let the user pick */
+  const hasAoFlow=!!(slots.AO&&slots.AO.eff!=null), hasAscFlow=!!(slots.ASCAO&&slots.ASCAO.eff!=null);
+  const bothAoFlows=hasAoFlow&&hasAscFlow;
+  const qsChoiceEl=document.getElementById('qsChoice'); if(qsChoiceEl) qsChoiceEl.style.display=bothAoFlows?'block':'none';
+  const qsSlot = bothAoFlows ? (state.qsSource==='ASCAO'?slots.ASCAO:slots.AO) : (hasAoFlow?slots.AO:(hasAscFlow?slots.ASCAO:null));
+  const qsLabel = qsSlot ? (qsSlot===slots.ASCAO?'Ascending aorta':'Aortic root') : 'Aorta';
+  const aoE = qsSlot?qsSlot.eff:null;
   const totQp=(rpaT!=null&&lpaT!=null)?(rpaT+lpaT).toFixed(2):'';
   const qpqs=(a,b)=> (a!=null&&b!=null&&b!==0)?`${(a/b).toFixed(2)}:1`:'';
   const qpqsE=qpqs(mpaE,aoE);
@@ -460,7 +473,7 @@ function generate(skipAssign){
     flowStructs.forEach(s=>pushIf(flowLine(s.data,s.v)));
     customFlows.forEach(c=>pushIf(flowLine(c.label,c.v)));
     if(totQp) L.push(`Total Qp based on QpR+QpL = ${totQp}`);
-    if(qpqsE) L.push(`Qp:Qs based on effective flows (MPA/Aorta) = ${qpqsE}`);
+    if(qpqsE) L.push(`Qp:Qs based on effective flows (MPA / ${qsLabel}) = ${qpqsE}`);
 
     if(state.ml==='yes'){
       const mlLines=flowStructs.map(s=>mlLine(s.data,s.v));
@@ -676,9 +689,12 @@ function bOrderRank(name){
   const seq=['aortic root','aao at rpa','ascending','distal transverse','transverse arch','transverse aortic arch',
     'isthmus','proximal thoracic descending','proximal descending','mid-thoracic descending','mid thoracic descending',
     'mid-thoracic','mid thoracic','mid descending','descending aorta at diaphragm','diaphragm','descending',
-    'main pulmonary','mpa','left pulmonary','lpa','right pulmonary','rpa'];
-  for(let i=0;i<seq.length;i++){ if(n.includes(seq[i])) return i; }
-  return 999;
+    'main pulmonary','mpa','left pulmonary','lpa','lp','right pulmonary','rpa','rp'];
+  let base=999;
+  for(let i=0;i<seq.length;i++){ if(n.includes(seq[i])){ base=i; break; } }
+  let sub=0.5;                                         /* order split branches proximal < mid < distal */
+  if(/\bprox/.test(n)) sub=0.1; else if(/\bmid/.test(n)) sub=0.2; else if(/\bdist/.test(n)) sub=0.3;
+  return base+sub;
 }
 function formatBoston(){
   const editEl=document.getElementById('bEdit'); if(!editEl) return;
@@ -893,7 +909,9 @@ const B_MATCH=[
   ['ascending','ASC'],['aao','ASC'],
   ['aortic root','AOR'],['ao root','AOR'],
   ['right pulmonary','RPA'],['left pulmonary','LPA'],['main pulmonary','MPA'],
-  ['rpa','RPA'],['lpa','LPA'],['mpa','MPA'],['pulmonary artery','MPA']
+  ['rpa','RPA'],['lpa','LPA'],['mpa','MPA'],['pulmonary artery','MPA'],
+  /* proximal/mid/distal branch abbreviations (e.g. "Distal LP", "Mid RP") -> LPA/RPA z */
+  ['lp','LPA'],['rp','RPA']
 ];
 /* Parses single-line ("Ascending aorta 2.1 cm x 2.2 cm") OR CVI multi-line
    (name flush-left, then indented "N: Length 22.57 mm" rows; mm² areas ignored). */
