@@ -176,7 +176,7 @@
     <div class="bcols" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start">
       <div>
         <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Raw dimensions (paste CVI)</div>
-        <textarea id="bDims" spellcheck="false" style="min-height:180px" placeholder="Paste vessel dimensions from CVI here…&#10;Ascending aorta 2.1 cm x 2.2 cm&#10;Aortic root 2.6 cm" oninput="formatBoston()"></textarea>
+        <textarea id="bDims" spellcheck="false" style="min-height:180px" placeholder="Paste CVI output, or free-text (no units needed):&#10;LPA 2.2 x 2.1&#10;aortic root 4.3 x 3.2 x 2.1&#10;MPA 2.4" oninput="formatBoston()"></textarea>
       </div>
       <div>
         <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Formatted &mdash; edit numbers here</div>
@@ -328,7 +328,8 @@ function autoSlot(name){
   if(n.includes('descending')) return 'DAO';
   if(n.includes('tricuspid')||n==='tv') return 'TV';
   if(n.includes('mitral')||n==='mv') return 'MV';
-  if(n.includes('aorta')||n.includes('aortic')) return 'AO';
+  if(n.includes('root')) return 'AO';                           /* aortic root */
+  if(n.includes('aorta')||n.includes('aortic')) return 'AORTA'; /* bare "aorta" -> resolved to AO/ASCAO by context */
   if(n.includes('right pulmonary')||n.includes('rpa')) return 'RPA';
   if(n.includes('left pulmonary')||n.includes('lpa')) return 'LPA';
   if(n.includes('main pulmonary')||n.includes('pulmonary artery')||n.includes('mpa')) return 'MPA';
@@ -346,13 +347,27 @@ function generate(skipAssign){
   const ft=parseFreeText(raw);
 
   /* map flow blocks to slots */
-  const slots={}; const ambiguous=[]; const customFlows=[];
+  const slots={}; const ambiguous=[]; const customFlows=[]; const bareAorta=[];
+  const placeAmbig=v=>{ const s=assign[v.name]; if(s==='other'){ const lbl=(assignOther[v.name]||'').trim(); if(lbl) customFlows.push({label:lbl,v}); } else if(s&&s!=='ignore') slots[s]=v; else ambiguous.push(v); };
   blocks.forEach(v=>{
     let slot=autoSlot(v.name);
+    if(slot==='AORTA'){ bareAorta.push(v); return; }            /* bare "aorta" -> resolve after all blocks are seen */
     if(slot===null){ ambiguous.push(v); slot=assign[v.name]||null; }
     if(slot==='other'){ const lbl=(assignOther[v.name]||'').trim(); if(lbl) customFlows.push({label:lbl, v}); }
     else if(slot && slot!=='ignore') slots[slot]=v;
   });
+  /* Resolve a bare "Aorta" by context: if the aortic root OR ascending aorta is explicitly
+     labeled, the bare one is the other; a lone bare aorta defaults to aortic root; two
+     unresolvable aortas go to the assign prompt (ask which is which). */
+  if(bareAorta.length===1){
+    const v=bareAorta[0];
+    if(slots.AO && !slots.ASCAO) slots.ASCAO=v;
+    else if(slots.ASCAO && !slots.AO) slots.AO=v;
+    else if(!slots.AO && !slots.ASCAO) slots.AO=v;
+    else placeAmbig(v);
+  } else if(bareAorta.length>=2){
+    bareAorta.forEach(placeAmbig);
+  }
   if(!skipAssign) renderAssign(ambiguous);
 
   /* block generation until every unlabeled ROI is assigned (Ignore counts as a choice; Other needs a label) */
@@ -918,7 +933,9 @@ const B_MATCH=[
 /* base structure name for grouping: strips a CVI "N on VIEW :" suffix or a "(cm): …" tail */
 function bBaseName(l){
   let m=l.match(/^(.*?)\s*\((?:cm|mm)\)\s*:/i); if(m) return m[1].trim();
-  let b=l.replace(/\s*\d+\s+on\s+\S+.*$/i,'').replace(/[:\s]+$/,'').trim();
+  let b=l.replace(/\s*\d+\s+on\s+\S+.*$/i,'');                                              /* CVI "N on VIEW …" */
+  b=b.replace(/[\s:]+-?\d[\d.]*(\s*(?:[x×,]|by|or)\s*-?\d[\d.]*)*\s*(cm|mm)?\.?\s*$/i,'');   /* free-text trailing dims */
+  b=b.replace(/[:\s]+$/,'').trim();
   return b || l.replace(/[:\s]+$/,'').trim();
 }
 /* Parse pasted CVI vessel data into blocks. Each block carries the structure's
@@ -950,8 +967,10 @@ function parseBostonBlocks(text){
       else if(mv){ let v=parseFloat(mv[1]); if(/mm/i.test(mv[2])) v=v/10; cur[t].push(v); }
       return;
     }
+    /* free-text dimensions with no unit, e.g. "LPA 2.2 x 2.1" or "aortic root 4.3 x 3.2 x 2.1" */
+    const freeTextDims = !!key && !hasUnit && !/\b\d+\s+on\s+\S+/i.test(l) && /\d/.test(l) && !l.endsWith(':');
     let len=[], perim=[], area=[], self=false, base=l;
-    if(hasUnit){                               /* self-contained line: value(s)+unit on one line (incl. bEdit format) */
+    if(hasUnit || freeTextDims){               /* self-contained line: value(s) on one line (unit optional for free text) */
       self=true;
       base=l.replace(/\s*\(\s*(?:z[\s-]*score\s*[=:]?\s*)?[+-]?\d+(?:\.\d+)?[^)]*\)\s*$/i,'').replace(/\s+$/,'');
       base.split(/\s*[|;]\s*/).forEach(seg=>{      /* segments: length | perimeter | area */
