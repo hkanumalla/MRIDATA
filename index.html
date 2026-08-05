@@ -63,6 +63,14 @@
   .unset select{border-color:var(--warn);box-shadow:0 0 0 2px rgba(178,90,0,.12)}
   .otherbox{padding:7px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px;min-width:200px}
   .unset .otherbox{border-color:var(--warn);box-shadow:0 0 0 2px rgba(178,90,0,.12)}
+  .tabbar{display:flex;gap:6px;margin-bottom:18px;border-bottom:2px solid var(--line)}
+  .tabbtn{border:0;background:transparent;padding:10px 20px;font-size:15px;font-weight:650;cursor:pointer;color:var(--muted);border-bottom:3px solid transparent;margin-bottom:-2px}
+  .tabbtn.on{color:var(--accent);border-bottom-color:var(--accent)}
+  .findrow{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px dashed var(--line);flex-wrap:wrap}
+  .findrow:first-of-type{border-top:0}
+  .findrow .flabel{font-weight:600;min-width:150px;font-size:13px}
+  .findrow .seg button{padding:5px 10px;font-size:12px}
+  .findrow input.ftext{flex:1;min-width:200px;padding:7px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px}
 </style>
 </head>
 <body>
@@ -78,6 +86,12 @@
 </header>
 
 <div class="wrap">
+  <div class="tabbar">
+    <button class="tabbtn on" id="tabbtnTool" onclick="showTab('tool')">Z-scores &amp; data</button>
+    <button class="tabbtn" id="tabbtnReport" onclick="showTab('report')">Report generator</button>
+  </div>
+
+  <div id="tabTool" style="display:none">
   <div class="banner">
     Reads the SAX3D LV/RV function export and the Flow Analysis export in one paste. Aorta and Pulmonary Artery flows auto-map;
     any ROI not clearly labeled (e.g. &ldquo;Flow ROI 4 Contour&rdquo;) prompts you to assign it. Total Qp and Qp:Qs are
@@ -193,6 +207,59 @@
     <div id="auditWrap"><p class="note">Generate a report to see the Z-score calculations.</p></div>
     <p class="note">Z = (indexed value &minus; mean) / SD. LVEDV, LV mass and RVEDV use the BSA-indexed value; LV&nbsp;EF and RVEF use the percentage. Normative mean &amp; SD are selected automatically from the band &amp; sex chosen above.</p>
   </div>
+  </div><!-- /tabTool -->
+
+  <div id="tabReport">
+    <div class="controls">
+      <div class="ctl"><label>Modality</label><div class="seg" id="modR"><button data-v="mri" class="on">MRI</button><button data-v="ct">CT</button></div></div>
+      <div class="ctl"><label>Age range</label><div class="seg" id="bandR"><button data-v="ped" class="on">Pediatric (8&ndash;17)</button><button data-v="adult">Adult (20&ndash;65)</button></div></div>
+      <div class="ctl"><label>Sex</label><div class="seg" id="sexR"><button data-v="F" class="on">Female</button><button data-v="M">Male</button></div></div>
+      <div class="ctl"><label>BSA (m&sup2;)</label><input type="text" id="topBSA2" class="otherbox" style="min-width:90px" placeholder="for z-scores" oninput="syncBSAFromReport()"></div>
+      <div class="ctl"><label>Study type</label>
+        <select id="rStudy" class="otherbox" style="min-width:220px" onchange="studyChanged()">
+          <option value="general">General &mdash; ventricular size &amp; function</option>
+          <option value="coarct">Coarctation / aortic arch</option>
+          <option value="tof">Tetralogy of Fallot / pulmonary valve</option>
+          <option value="cmp">Cardiomyopathy / tissue characterization</option>
+          <option value="aorta">Aorta / aortic root</option>
+          <option value="bicuspid">Bicuspid aortic valve</option>
+          <option value="myocarditis">Myocarditis</option>
+        </select>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h2>Report inputs</h2>
+        <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:0 0 4px">History / diagnosis</div>
+        <input id="rHistory" class="otherbox" style="width:100%;margin-bottom:10px" placeholder="e.g. Coarctation of aorta s/p end-to-end repair" oninput="genReport()">
+        <div id="rInputLbl" style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:0 0 4px">Raw MRI data (LV/RV function + flow blocks)</div>
+        <textarea id="rInput" spellcheck="false" style="min-height:150px" placeholder="Paste the LV/RV function export and the Flow Analysis blocks here" oninput="syncFromReport()"></textarea>
+        <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:10px 0 4px">Vessel dimensions</div>
+        <textarea id="rDims" spellcheck="false" style="min-height:90px" placeholder="Paste CVI (Line contours / MPR) or free-text: aortic root 3.2 &middot; ascending aorta 2.1 x 2.2 &middot; MPA 2.4" oninput="syncDimsFromReport()"></textarea>
+        <div class="controls" style="margin-top:12px">
+          <div class="ctl"><label>Heart rate</label><input id="rHR" class="otherbox" style="min-width:70px" placeholder="bpm" oninput="genReport()"></div>
+          <span id="techMRI" style="display:contents">
+            <div class="ctl"><label>Field</label><select id="rTesla" class="otherbox" style="min-width:70px" onchange="genReport()"><option>1.5 T</option><option>3 T</option></select></div>
+            <div class="ctl"><label>Gad (mL)</label><input id="rGad" class="otherbox" style="min-width:60px" oninput="genReport()"></div>
+            <div class="ctl"><label>Sedation</label><select id="rSed" class="otherbox" style="min-width:110px" onchange="genReport()"><option>None</option><option>General anesthesia</option><option>Sedation</option></select></div>
+          </span>
+          <span id="techCT" style="display:none">
+            <div class="ctl"><label>kV</label><input id="rKv" class="otherbox" style="min-width:60px" placeholder="100" oninput="genReport()"></div>
+            <div class="ctl"><label>Contrast (mL)</label><input id="rContrast" class="otherbox" style="min-width:70px" oninput="genReport()"></div>
+            <div class="ctl"><label>DLP (mGy&middot;cm)</label><input id="rDLP" class="otherbox" style="min-width:80px" oninput="genReport()"></div>
+          </span>
+        </div>
+        <h2 style="margin:18px 0 6px">Cardiac findings</h2>
+        <p class="note" style="margin-top:0">Each line defaults to <b>Normal</b> with numbers auto-filled. Click <b>Abnormal</b> to type your own sentence, or <b>Omit</b> to leave it out.</p>
+        <div id="findRows"></div>
+      </div>
+      <div class="card">
+        <h2>Generated report</h2>
+        <textarea id="rOutput" spellcheck="false" style="min-height:680px"></textarea>
+        <div class="btnrow"><button class="btn btn-primary" onclick="copyReport()">Copy report</button><span class="copied" id="rCopied">Copied &#10003;</span></div>
+      </div>
+    </div>
+  </div><!-- /tabReport -->
 </div>
 
 <script>
@@ -505,6 +572,7 @@ function generate(skipAssign){
 
   /* ---- Boston Z-Score (last section) ---- */
   const bostonAbn=[];
+  let rptGroups={}, rptBsa=null;                 /* exposed to the Report tab */
   const bItems=parseBostonBlocks(bdimsVal);
   const bWarnEl=document.getElementById('bBSAwarn'); if(bWarnEl) bWarnEl.style.display='none';
   if(!bItems.length){ const bAC=document.getElementById('bAssignCard'); if(bAC){bAC.style.display='none';bAC.innerHTML='';} }
@@ -521,6 +589,7 @@ function generate(skipAssign){
     /* group blocks by structure NAME (so unrecognized named structures group too);
        z only for names that map to a Boston regression. */
     const {order,groups}=bostonGroups(bItems);
+    rptGroups=groups; rptBsa=bsaB;
     const needsBSA=order.some(o=>o.g && BOSTON[groups[o.g].key]);
     if(bWarnEl && !haveBSA && needsBSA) bWarnEl.style.display='block';
     L.push('');
@@ -548,6 +617,10 @@ function generate(skipAssign){
       }
     });
   }
+
+  /* expose parsed data + measurement lines to the Report tab */
+  window.RPT={ M, slots, qpqsE, qsLabel, groups:rptGroups, bsa:rptBsa, lines:L.slice(), band:state.band, sex:state.sex };
+  if(typeof genReport==='function' && document.getElementById('tabReport') && document.getElementById('tabReport').style.display!=='none') genReport();
 
   const escH=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   document.getElementById('output').innerHTML=L.map(line=>lineAbnormal(line)?`<span class="abn-line">${escH(line)}</span>`:escH(line)).join('\n');
@@ -988,6 +1061,304 @@ function parseBostonBlocks(text){
   return out;
 }
 function bInterpret(z){const a=Math.abs(z);if(a<=2)return 'normal in size';const sev=a>3?'severely ':'';return sev+(z>0?'dilated':'hypoplastic');}
+
+/* ==================================================================== */
+/* =====================  REPORT GENERATOR TAB  ======================== */
+/* ==================================================================== */
+
+function showTab(which){
+  const rep=which==='report';
+  document.getElementById('tabReport').style.display=rep?'':'none';
+  document.getElementById('tabTool').style.display=rep?'none':'';
+  document.getElementById('tabbtnReport').classList.toggle('on',rep);
+  document.getElementById('tabbtnTool').classList.toggle('on',!rep);
+  if(rep){
+    /* pull whatever is in the tool inputs into the report inputs */
+    const i=document.getElementById('input'), d=document.getElementById('bDims');
+    if(i && document.getElementById('rInput').value.trim()==='') document.getElementById('rInput').value=i.value;
+    if(d && document.getElementById('rDims').value.trim()==='') document.getElementById('rDims').value=d.value;
+    const tb=document.getElementById('topBSA'); if(tb) document.getElementById('topBSA2').value=tb.value;
+    syncSegR();
+    genReport();
+  } else { syncMainSegs(); }
+}
+/* reflect state into the report-tab band/sex segmented controls */
+function syncSegR(){ ['bandR','sexR'].forEach(id=>{ const key=id==='bandR'?'band':'sex'; const box=document.getElementById(id); if(!box)return; box.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.v===state[key])); }); }
+/* reflect state back into the tool-tab band/sex controls */
+function syncMainSegs(){ [['band','band'],['sex','sex']].forEach(([id,key])=>{ const box=document.getElementById(id); if(!box)return; box.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.v===state[key])); }); }
+
+function wireSegR(id,key){
+  const box=document.getElementById(id); if(!box) return;
+  box.querySelectorAll('button').forEach(b=>{
+    b.onclick=()=>{ box.querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); state[key]=b.dataset.v; generate(); };
+  });
+}
+wireSegR('bandR','band'); wireSegR('sexR','sex');
+
+/* ---- modality (MRI vs CT) ---- */
+let rptModality='mri';
+const FIND_DEFAULTS={
+  mri:{situs:'normal',ventricles:'normal',atria:'normal',avalve:'normal',mvalve:'normal',aroot:'normal',ascao:'normal',arch:'normal',dao:'normal',pa:'normal',coronaries:'omit',tissue:'omit',peri:'normal',shunt:'normal'},
+  ct: {situs:'omit',ventricles:'omit',atria:'omit',avalve:'omit',mvalve:'omit',aroot:'normal',ascao:'normal',arch:'normal',dao:'normal',pa:'normal',coronaries:'normal',tissue:'omit',peri:'omit',shunt:'omit'}
+};
+function setModality(m){
+  rptModality=m;
+  document.getElementById('techMRI').style.display = m==='ct'?'none':'contents';
+  document.getElementById('techCT').style.display  = m==='ct'?'contents':'none';
+  const lbl=document.getElementById('rInputLbl'); if(lbl) lbl.textContent = m==='ct'?'Raw ventricular / flow data (optional for CT)':'Raw MRI data (LV/RV function + flow blocks)';
+  const md=document.getElementById('modR'); if(md) md.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.v===m));
+  const d=FIND_DEFAULTS[m]; RFIND.forEach(f=>{ if(d[f.id]) rState[f.id].mode=d[f.id]; });
+  const t=document.getElementById('rStudy').value; if(t==='myocarditis'||t==='cmp') rState.tissue.mode='normal';
+  renderFindRows(); genReport();
+}
+(function wireModR(){ const box=document.getElementById('modR'); if(!box)return; box.querySelectorAll('button').forEach(b=>{ b.onclick=()=>setModality(b.dataset.v); }); })();
+
+function syncFromReport(){ const i=document.getElementById('input'); if(i) i.value=document.getElementById('rInput').value; generate(); }
+function syncDimsFromReport(){ const b=document.getElementById('bDims'); if(b){ b.value=document.getElementById('rDims').value; formatBoston(); } }
+function syncBSAFromReport(){ const tb=document.getElementById('topBSA'); if(tb) tb.value=document.getElementById('topBSA2').value; generate(); }
+
+/* ---- findings rows ---- */
+const RFIND=[
+  {id:'situs',   label:'Situs / connections', def:'normal'},
+  {id:'ventricles', label:'Ventricles',       def:'normal'},
+  {id:'atria',   label:'Atria',               def:'normal'},
+  {id:'avalve',  label:'Aortic valve',        def:'normal'},
+  {id:'mvalve',  label:'Mitral / other valves', def:'normal'},
+  {id:'aroot',   label:'Aortic root',         def:'normal'},
+  {id:'ascao',   label:'Ascending aorta',     def:'normal'},
+  {id:'arch',    label:'Aortic arch',         def:'normal'},
+  {id:'dao',     label:'Descending aorta',    def:'normal'},
+  {id:'pa',      label:'Pulmonary arteries',  def:'normal'},
+  {id:'coronaries', label:'Coronary arteries', def:'omit'},
+  {id:'tissue',  label:'Tissue characterization', def:'omit'},
+  {id:'peri',    label:'Pericardium',         def:'normal'},
+  {id:'shunt',   label:'PC flows / shunt',    def:'normal'}
+];
+const rState={};
+RFIND.forEach(f=>rState[f.id]={mode:f.def||'normal',text:''});
+
+function escAttr(s){return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');}
+function renderFindRows(){
+  const box=document.getElementById('findRows'); if(!box) return;
+  box.innerHTML=RFIND.map(f=>{
+    const st=rState[f.id];
+    return '<div class="findrow"><span class="flabel">'+f.label+'</span>'+
+      '<div class="seg">'+
+        '<button data-f="'+f.id+'" data-m="normal" class="'+(st.mode==='normal'?'on':'')+'" onclick="setFind(this)">Normal</button>'+
+        '<button data-f="'+f.id+'" data-m="abnormal" class="'+(st.mode==='abnormal'?'on':'')+'" onclick="setFind(this)">Abnormal</button>'+
+        '<button data-f="'+f.id+'" data-m="omit" class="'+(st.mode==='omit'?'on':'')+'" onclick="setFind(this)">Omit</button>'+
+      '</div>'+
+      (st.mode==='abnormal'?'<input class="ftext" data-f="'+f.id+'" value="'+escAttr(st.text)+'" oninput="setFindText(this)" placeholder="Type the '+f.label.toLowerCase()+' finding…">':'')+
+    '</div>';
+  }).join('');
+}
+function setFind(b){ rState[b.dataset.f].mode=b.dataset.m; renderFindRows(); genReport(); }
+function setFindText(inp){ rState[inp.dataset.f].text=inp.value; genReport(); }
+
+/* ---- narrative helpers ---- */
+function cap(s){ return s?s.charAt(0).toUpperCase()+s.slice(1):s; }
+function grpByKey(R,key){ return Object.values(R.groups||{}).find(G=>G&&G.key===key && G.len && G.len.length); }
+function volAdj(z){ if(z==null) return 'normal'; if(z>=4) return 'severely dilated'; if(z>=3) return 'moderately dilated'; if(z>=2) return 'dilated'; if(z>=1.5) return 'borderline dilated'; if(z<=-2) return 'small'; return 'normal'; }
+function efAdjLV(ef){ return ef>=55?'normal':ef>=45?'mildly reduced':ef>=35?'moderately reduced':'severely reduced'; }
+function efAdjRV(ef){ return ef>=48?'normal':ef>=40?'mildly reduced':ef>=30?'moderately reduced':'severely reduced'; }
+
+function fVentricles(R){
+  const M=R.M||{};
+  const lz=(M.LVEDVi!=null)?calcZ('LVEDVi',M.LVEDVi).z:null;
+  const rz=(M.RVEDVi!=null)?calcZ('RVEDVi',M.RVEDVi).z:null;
+  const bits=[];
+  if(M.LVEDVi!=null) bits.push(cap(volAdj(lz))+' left ventricular volume (LVEDVi '+M.LVEDVi+', z '+fmtZ(lz)+')');
+  if(M.RVEDVi!=null) bits.push(volAdj(rz)+' right ventricular volume (RVEDVi '+M.RVEDVi+', z '+fmtZ(rz)+')');
+  let s = bits.length ? bits.join(', and ')+'.' : 'Normal biventricular volumes.';
+  const ef=[];
+  if(M.LVEF!=null) ef.push(efAdjLV(M.LVEF)+' left (LVEF '+M.LVEF+'%)');
+  if(M.RVEF!=null) ef.push(efAdjRV(M.RVEF)+' right (RVEF '+M.RVEF+'%)');
+  if(ef.length) s+=' There is '+ef.join(' and ')+' ventricular systolic function.';
+  return s;
+}
+function fAroot(R){
+  const G=grpByKey(R,'AOR'); if(!G) return 'Aortic root is normal in size.';
+  const mx=Math.max.apply(null,G.len);
+  if(R.bsa){ const r=bZ('AOR',R.bsa,mx); const a=Math.abs(parseFloat(r.zs)); const adj=a<=2?'normal in size':(parseFloat(r.zs)>0?(a>3?'severely dilated':'dilated'):'small'); return 'Aortic root is '+adj+' (z '+r.zs+' taking a maximal dimension of '+(Math.round(mx*100)/100)+' cm).'; }
+  return 'Aortic root maximal dimension '+(Math.round(mx*100)/100)+' cm.';
+}
+function fAscao(R){
+  const G=grpByKey(R,'ASC'); if(!G) return 'Normal ascending aorta.';
+  const mean=G.len.reduce((a,b)=>a+b,0)/G.len.length;
+  if(R.bsa){ const r=bZ('ASC',R.bsa,mean); const a=Math.abs(parseFloat(r.zs)); const adj=a<=2?'Normal':(parseFloat(r.zs)>0?(a>3?'Severely dilated':'Dilated'):'Small'); return adj+' ascending aorta (z '+r.zs+' taking a mean of '+(Math.round(mean*100)/100)+' cm).'; }
+  return 'Ascending aorta mean '+(Math.round(mean*100)/100)+' cm.';
+}
+function fShunt(R){
+  const S=R.slots||{};
+  const grade=x=>x>=40?'severe':x>=20?'moderate':x>=10?'mild':null;
+  const pr=(S.MPA&&S.MPA.regurg!=null)?S.MPA.regurg:null;
+  const ar=(S.AO&&S.AO.regurg!=null)?S.AO.regurg:((S.ASCAO&&S.ASCAO.regurg!=null)?S.ASCAO.regurg:null);
+  const arT = ar==null?'no aortic regurgitation':(grade(ar)?grade(ar)+' aortic regurgitation (RF '+ar+'%)':'no significant aortic regurgitation');
+  const prT = pr==null?'no pulmonary regurgitation':(grade(pr)?grade(pr)+' pulmonary regurgitation (RF '+pr+'%)':'no significant pulmonary regurgitation');
+  let s='PC imaging demonstrates normal cardiac output, '+arT+', '+prT+', and ';
+  const q=R.qpqsE?parseFloat(R.qpqsE):null;
+  if(q!=null && !isNaN(q)){ s+=(q>=1.15?'a net left-to-right shunt':q<=0.85?'a net right-to-left shunt':'no significant shunt')+' with a Qp/Qs of '+R.qpqsE+'.'; }
+  else s+='no significant shunt.';
+  return s;
+}
+function normalFinding(id,R){
+  switch(id){
+    case 'situs': return 'Situs solitus with normal systemic and pulmonary venous connections and normal atrioventricular and ventriculoarterial connections.';
+    case 'ventricles': return fVentricles(R);
+    case 'atria': return 'Normal right and left atria.';
+    case 'avalve': return 'Tricommissural aortic valve without stenosis.';
+    case 'mvalve': return 'Normal mitral, tricuspid and pulmonary valves.';
+    case 'aroot': return fAroot(R);
+    case 'ascao': return fAscao(R);
+    case 'arch': return 'Left aortic arch with normal branching pattern. Normal transverse arch and isthmus, without coarctation.';
+    case 'dao': return 'The thoracic descending aorta is normal in caliber.';
+    case 'pa': return 'Normal main pulmonary artery with good size, continuous branch pulmonary arteries.';
+    case 'coronaries': return 'Normal origins and proximal courses of the right and left main coronary arteries. Normal branching and proximal courses of the left anterior descending and circumflex arteries.';
+    case 'tissue': return 'No myocardial edema on T2-weighted imaging. No regional or global late gadolinium enhancement. Normal native T1 and extracellular volume.';
+    case 'peri': return 'No pericardial effusion.';
+    case 'shunt': return fShunt(R);
+  }
+  return '';
+}
+function buildFindings(R){
+  return RFIND.map(f=>{
+    const st=rState[f.id];
+    if(st.mode==='omit') return '';
+    if(st.mode==='abnormal') return st.text.trim();
+    return normalFinding(f.id,R);
+  }).filter(Boolean);
+}
+function buildImpressionR(R){
+  const imp=[];
+  const M=R.M||{};
+  /* ventricle summary */
+  const lz=(M.LVEDVi!=null)?calcZ('LVEDVi',M.LVEDVi).z:null;
+  const rz=(M.RVEDVi!=null)?calcZ('RVEDVi',M.RVEDVi).z:null;
+  const lvNorm=(lz==null||Math.abs(lz)<2)&&(M.LVEF==null||M.LVEF>=55);
+  const rvNorm=(rz==null||Math.abs(rz)<2)&&(M.RVEF==null||M.RVEF>=48);
+  if(lvNorm&&rvNorm&&(M.LVEDVi!=null||M.RVEDVi!=null)) imp.push('Normal biventricular size and systolic function.');
+  else {
+    if(rState.ventricles.mode==='normal'&&(M.LVEDVi!=null||M.RVEDVi!=null)) imp.push(fVentricles(R));
+  }
+  /* pull each abnormal free-text finding into the impression */
+  RFIND.forEach(f=>{ const st=rState[f.id]; if(st.mode==='abnormal'&&st.text.trim()) imp.push(st.text.trim()); });
+  /* notable vessels */
+  ['AOR','ASC','MPA','RPA','LPA'].forEach(k=>{
+    const G=grpByKey(R,k); if(!G||!R.bsa) return;
+    const vals=G.len, agg=k==='AOR'?Math.max.apply(null,vals):vals.reduce((a,b)=>a+b,0)/vals.length;
+    const r=bZ(k,R.bsa,agg); if(Math.abs(parseFloat(r.zs))>=2){ const nm={AOR:'aortic root',ASC:'ascending aorta',MPA:'main pulmonary artery',RPA:'right pulmonary artery',LPA:'left pulmonary artery'}[k]; imp.push(cap(nm)+' is '+(parseFloat(r.zs)>0?'dilated':'hypoplastic')+' (z '+r.zs+').'); }
+  });
+  /* shunt / regurg */
+  const S=R.slots||{};
+  const grade=x=>x>=40?'severe':x>=20?'moderate':x>=10?'mild':null;
+  if(S.MPA&&S.MPA.regurg!=null&&grade(S.MPA.regurg)) imp.push(cap(grade(S.MPA.regurg))+' pulmonary regurgitation (RF '+S.MPA.regurg+'%).');
+  if(S.AO&&S.AO.regurg!=null&&grade(S.AO.regurg)) imp.push(cap(grade(S.AO.regurg))+' aortic regurgitation (RF '+S.AO.regurg+'%).');
+  if(R.qpqsE){ const q=parseFloat(R.qpqsE); if(!isNaN(q)) imp.push((q>=1.15?'Net left-to-right shunt':q<=0.85?'Net right-to-left shunt':'No significant shunt')+' (Qp/Qs '+R.qpqsE+').'); }
+  if(!imp.length){
+    const hasVessel=R.groups && Object.keys(R.groups).length>0;
+    imp.push(hasVessel?'Normal great vessel dimensions for body surface area.':'Normal study.');
+  }
+  return imp;
+}
+
+/* ---- study-type text ---- */
+function indicationText(t){
+  if(rptModality==='ct'){
+    return ({
+      general:'CT angiography for assessment of thoracic vascular anatomy.',
+      coarct:'CT angiography of the thoracic aorta and aortic arch, evaluation for coarctation.',
+      tof:'CT angiography of the right ventricular outflow tract and pulmonary arteries.',
+      cmp:'CT angiography for structural cardiac assessment.',
+      aorta:'CT angiography of the aortic root and thoracic aorta.',
+      bicuspid:'CT angiography for bicuspid aortic valve with assessment of the aortic root and ascending aorta.',
+      myocarditis:'CT angiography for structural cardiac assessment.'
+    })[t] || 'CT angiography for assessment of thoracic vascular anatomy.';
+  }
+  return ({
+    general:'Assessment of ventricular size and systolic function.',
+    coarct:'Assessment of the thoracic aorta and aortic arch, and evaluation for coarctation.',
+    tof:'Assessment of biventricular size and function, pulmonary regurgitation, and the right ventricular outflow tract.',
+    cmp:'Assessment of ventricular size and function with tissue characterization for cardiomyopathy.',
+    aorta:'Assessment of the aortic root and thoracic aorta.',
+    bicuspid:'Evaluation of bicuspid aortic valve with assessment of the aortic root and ascending aorta.',
+    myocarditis:'Assessment of ventricular function with tissue characterization for myocarditis.'
+  })[t] || 'Assessment of ventricular size and systolic function.';
+}
+function techniqueSequences(t){
+  let s='Steady-state free precession cine imaging in standard short- and long-axis planes; phase-contrast flow imaging of the great vessels; gadolinium-enhanced angiography.';
+  if(t==='cmp'||t==='myocarditis') s+=' T2-weighted imaging, native and post-contrast T1 mapping with ECV, and late gadolinium enhancement for tissue characterization.';
+  else s+=' Late gadolinium enhancement imaging.';
+  return s;
+}
+function refText(R){
+  const hasVent = R.M && Object.keys(R.M).length>0;
+  const hasVessel = R.groups && Object.keys(R.groups).length>0;
+  if(rptModality==='ct' || !hasVent){
+    return hasVessel ? "*Vessel z-scores based on Boston Children's Hospital normative data (mean dimensions)." : '';
+  }
+  return (R.band||state.band)==='adult'
+    ? '*ref: Alfakih et al; Normal Human Left and Right Ventricular dimensions for MRI as Assessed by Turbo Gradient Echo and Steady-State Free Precession Imaging Sequences. J Mag Res Imag 2003; 17: 323-329'
+    : '*ref: Robbers-Visser et al; Normal Biventricular Function, Volumes, and Mass in Children Aged 8 to 17 Years. J Mag Res Imag 2009; 29: 552-559';
+}
+/* study-type change: auto-toggle the tissue-characterization finding on for
+   myocarditis / cardiomyopathy studies, off otherwise */
+function studyChanged(){
+  const t=document.getElementById('rStudy').value;
+  rState.tissue.mode=(t==='myocarditis'||t==='cmp')?'normal':'omit';
+  renderFindRows();
+  genReport();
+}
+
+/* ---- assemble the report ---- */
+function genReport(){
+  const out=document.getElementById('rOutput'); if(!out) return;
+  if(document.activeElement===out) return;   /* don't clobber manual edits in progress */
+  const R=window.RPT||{lines:[]};
+  const g=id=>document.getElementById(id), v=id=>{const e=g(id);return e?e.value.trim():'';};
+  const L=[];
+  const hist=v('rHistory'); if(hist){ L.push('History: '+hist); L.push(''); }
+  L.push('Indication for study: '+indicationText(g('rStudy').value));
+  L.push('');
+  L.push('Technique:');
+  if(rptModality==='ct'){
+    let ln='ECG-gated cardiac CT angiography of the chest with intravenous iodinated contrast';
+    if(v('rContrast')) ln+=' ('+v('rContrast')+' mL)';
+    ln+='.';
+    if(v('rKv')) ln+=' '+v('rKv')+' kV.';
+    if(v('rDLP')) ln+=' DLP '+v('rDLP')+' mGy·cm.';
+    L.push(ln);
+    L.push('Multiplanar and 3D reconstructions generated; vessel dimensions measured on double-oblique MPR.');
+  } else {
+    L.push('Cardiac coil, '+(v('rTesla')||'1.5 T')+'.   Gad dose: '+(v('rGad')||'___')+' mL.   Sedation: '+(v('rSed')||'None')+'.');
+    L.push(techniqueSequences(g('rStudy').value));
+  }
+  L.push('');
+  if(rptModality!=='ct'){ L.push('Measurements:'); L.push(''); }
+  if(v('rHR')){ L.push('Heart Rate: '+v('rHR')+' bpm'); L.push(''); }
+  (R.lines||[]).forEach(l=>L.push(l));
+  L.push('');
+  L.push('CARDIAC FINDINGS:');
+  buildFindings(R).forEach(s=>L.push(s));
+  L.push('');
+  L.push('EXTRA CARDIAC FINDINGS:');
+  L.push('Not critically assessed. Imaging and interpretation directed at cardiac and thoracic vascular indications only.');
+  L.push('');
+  const rt=refText(R); if(rt){ L.push(rt); L.push(''); }
+  L.push('IMPRESSION:');
+  buildImpressionR(R).forEach(s=>L.push('- '+s));
+  out.value=L.join('\n');
+}
+
+async function copyReport(){
+  const t=document.getElementById('rOutput').value; if(!t) return;
+  try{ await navigator.clipboard.writeText(t); }catch(e){}
+  const c=document.getElementById('rCopied'); c.style.display='inline'; setTimeout(()=>c.style.display='none',1600);
+}
+
+/* ---- init: default to the Z-scores tab ---- */
+renderFindRows();
+syncSegR();
+showTab('tool');
 </script>
 </body>
 </html>
