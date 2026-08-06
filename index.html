@@ -197,7 +197,7 @@
         <textarea id="bEdit" spellcheck="false" style="min-height:180px" placeholder="Formatted measurements appear here after you paste. Round or adjust the numbers, then the z-scores below update from these edited values." oninput="generate()"></textarea>
       </div>
     </div>
-    <p class="note">Paste raw CVI on the left; it auto-formats into the editable box on the right. <b>Adjust or round the numbers there</b> &mdash; the z-scores in the report are computed from the edited box. Recognized (with z-scores): aortic root, ascending aorta, distal transverse aortic arch, aortic isthmus, main / right / left pulmonary artery. Aortic segments without a Boston regression (descending / diaphragmatic / distal ascending) are reformatted without a z-score. Unlabeled blocks (e.g. a header followed by 1&ndash;3 lengths) prompt you to assign them (usually aortic root). <b>Average</b> gives one z from the mean of the dimensions; <b>Individual</b> gives a z for each. BSA is taken from the pasted ventricular data (absolute &divide; indexed) if present, otherwise type it above.</p>
+    <p class="note">Paste raw CVI on the left; it auto-formats into the editable box on the right. <b>Adjust or round the numbers there</b> &mdash; the z-scores in the report are computed from the edited box. Recognized (with z-scores): aortic root, ascending aorta, distal transverse aortic arch, aortic isthmus, main / right / left pulmonary artery. Aortic segments without a Boston regression (descending / diaphragmatic / distal ascending) are reformatted without a z-score. Unlabeled blocks (e.g. a header followed by 1&ndash;3 lengths) prompt you to assign them (usually aortic root). <b>Average</b> gives one z from the mean of the dimensions; <b>Individual</b> gives a z for each. The <b>aortic root</b> always shows all its dimensions and its z is taken from the <b>maximal</b> dimension (label and notes such as &ldquo;(systole)&rdquo; or &ldquo;(from sinus to commissure)&rdquo; are preserved). Inline perimeter (e.g. &ldquo;&hellip;cm, peri 100.5&nbsp;mm&rdquo;) is split onto its own field and excluded from the diameter z. BSA is taken from the pasted ventricular data (absolute &divide; indexed) if present, otherwise type it above.</p>
   </div>
 
   <div class="card" id="bAssignCard" style="display:none;margin-top:20px;border-color:#f0d8a8;background:#fffdf7"></div>
@@ -605,6 +605,21 @@ function generate(skipAssign){
       const base=bLineText(o.g, G);
       if(!isZ || !G.len.length){ L.push(base); return; }   /* no Boston regression, or nothing to score */
       if(!haveBSA){ L.push(base); return; }
+      if(key==='AOR'){
+        /* aortic root: show ALL dimensions, z from the MAXIMAL dimension */
+        const mx=Math.max.apply(null,G.len); const r=bZ('AOR',bsaB,mx);
+        const znote=` (z = ${r.zs} based on maximal dimension)`;
+        const b0=G.blocks[0]||{};
+        const inline=G.blocks.length===1 && /-?\d[\d.]*(?:\s*[x×,]\s*-?\d[\d.]*)+/.test((b0.nameLine||'').replace(/mm|cm/gi,''));
+        let line;
+        if(inline){
+          const orig=b0.nameLine, m=orig.match(/-?\d[\d.]*(?:\s*[x×,]\s*-?\d[\d.]*)+\s*(?:cm|mm)?/i);
+          line = m ? orig.slice(0,m.index+m[0].length)+znote+orig.slice(m.index+m[0].length) : orig+znote;
+        } else { line = bLineText(o.g,G)+znote; }
+        L.push(line+(r.oor?' [BSA out of range]':''));
+        if(Math.abs(parseFloat(r.zs))>=2) bostonAbn.push({name:'Aortic root', z:r.zs});
+        return;
+      }
       if(state.bmode==='avg'){
         const a=G.len.reduce((s,v)=>s+v,0)/G.len.length; const r=bZ(key,bsaB,a);
         L.push(`${base} (z-score = ${r.zs})${r.oor?' [BSA out of range]':''}`);
@@ -1006,6 +1021,7 @@ const B_MATCH=[
 /* base structure name for grouping: strips a CVI "N on VIEW :" suffix or a "(cm): …" tail */
 function bBaseName(l){
   let m=l.match(/^(.*?)\s*\((?:cm|mm)\)\s*:/i); if(m) return m[1].trim();
+  let mc=l.match(/^(.*?):\s*-?\d/); if(mc && /[a-z]/i.test(mc[1]) && !/\d+\s+on\s+\S+/i.test(mc[1])) return mc[1].trim();  /* "Label: <dims>…" */
   let b=l.replace(/\s*\d+\s+on\s+\S+.*$/i,'');                                              /* CVI "N on VIEW …" */
   b=b.replace(/[\s:]+-?\d[\d.]*(\s*(?:[x×,]|by|or)\s*-?\d[\d.]*)*\s*(cm|mm)?\.?\s*$/i,'');   /* free-text trailing dims */
   b=b.replace(/[:\s]+$/,'').trim();
@@ -1046,6 +1062,9 @@ function parseBostonBlocks(text){
     if(hasUnit || freeTextDims){               /* self-contained line: value(s) on one line (unit optional for free text) */
       self=true;
       base=l.replace(/\s*\(\s*(?:z[\s-]*score\s*[=:]?\s*)?[+-]?\d+(?:\.\d+)?[^)]*\)\s*$/i,'').replace(/\s+$/,'');
+      /* inline perimeter/area (comma-separated, e.g. "3.3 x 2.79 cm, peri 100.5 mm") -> own segment */
+      base=base.replace(/[,;]?\s*(perimeter|perim|peri|circumference)\b\s*[:=]?/gi,' | perimeter ')
+               .replace(/[,;]?\s*(area)\b\s*[:=]?/gi,' | area ');
       base.split(/\s*[|;]\s*/).forEach(seg=>{      /* segments: length | perimeter | area */
         const t=typeOf(seg), isMm=/\bmm\b/i.test(seg)&&!/\bcm\b/i.test(seg);
         const nums=(seg.match(/-?\d+(?:\.\d+)?/g)||[]).map(parseFloat);
