@@ -71,6 +71,18 @@
   .findrow .flabel{font-weight:600;min-width:150px;font-size:13px}
   .findrow .seg button{padding:5px 10px;font-size:12px}
   .findrow input.ftext{flex:1;min-width:200px;padding:7px 10px;border:1px solid var(--line);border-radius:7px;font-size:13px}
+  .lgewrap{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+  .lgering svg{width:250px;height:auto}
+  .lgeseg{fill:#fff;stroke:#8a8a8a;stroke-width:1.1;cursor:pointer;transition:fill .1s,opacity .1s}
+  .lgeseg:hover{fill:#ffe6a0}
+  .lgeseg.sub{fill:#e8663a}
+  .lgeseg.mid{fill:#3a6ee8}
+  .lgeseg.both{fill:#7a4fc0}
+  .lgeseg.sub:hover,.lgeseg.mid:hover,.lgeseg.both:hover{opacity:.82}
+  .lgelbl{font:600 9px system-ui,Arial;fill:#333;pointer-events:none}
+  .lgetitle{font:700 12px system-ui,Arial;fill:#111;pointer-events:none}
+  .lgehole{fill:#f4f4f4;stroke:#8a8a8a;stroke-width:1.1;pointer-events:none}
+  .lgechip{display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:middle}
 </style>
 </head>
 <body>
@@ -89,6 +101,7 @@
   <div class="tabbar">
     <button class="tabbtn on" id="tabbtnTool" onclick="showTab('tool')">Z-scores &amp; data</button>
     <button class="tabbtn" id="tabbtnReport" onclick="showTab('report')">Report generator</button>
+    <button class="tabbtn" id="tabbtnCT" onclick="showTab('ctreport')">CT Report</button>
   </div>
 
   <div id="tabTool" style="display:none">
@@ -259,7 +272,75 @@
         <div class="btnrow"><button class="btn btn-primary" onclick="copyReport()">Copy report</button><span class="copied" id="rCopied">Copied &#10003;</span></div>
       </div>
     </div>
+    <div class="card" id="lgePanel" style="display:none;margin-top:20px">
+      <h2>Myocardial LGE mapping (17-segment model)</h2>
+      <p class="note" style="margin-top:0">Each segment has two clickable bands: the <b>outer</b> band (away from the cavity) is <b>subepicardial</b>, the <b>inner</b> band is <b>mid-myocardial</b>. Click either &mdash; it lights up in <b>every</b> view that contains that segment. Click again to clear.
+        &nbsp;&nbsp;<span class="lgechip" style="background:#e8663a"></span> subepicardial &nbsp;
+        <span class="lgechip" style="background:#3a6ee8"></span> mid-myocardial</p>
+      <div class="lgewrap" id="lgeLAX"></div>
+      <div class="lgewrap" id="lgePSAX" style="margin-top:4px"></div>
+      <div style="margin-top:12px;font-size:14px"><b>Generated:</b> <span id="lgeText" style="color:var(--muted)">No segments selected.</span></div>
+      <div class="btnrow"><button class="btn" onclick="clearLGE()">Clear all segments</button></div>
+    </div>
   </div><!-- /tabReport -->
+
+  <div id="tabCTReport" style="display:none">
+    <div class="grid">
+      <div class="card">
+        <h2>CT technique</h2>
+        <p class="note" style="margin-top:0">Toggle the options and fill the boxes; the technique text builds on the right. Numeric boxes start blank &mdash; a blank shows as <code>___</code>.</p>
+
+        <p class="note" style="margin:0 0 10px"><b>Scanner:</b> CCMC Siemens &nbsp;&middot;&nbsp; <b>Acquisitions:</b> Contrast-enhanced electrocardiographically gated computed tomography heart <span style="color:var(--muted)">(fixed)</span></p>
+
+        <div class="controls" style="margin-top:4px">
+          <div class="ctl"><label>Gating protocol</label><div class="seg" id="ctProto"><button data-v="Retrospective" class="on" onclick="ctSeg(this)">Retrospective</button><button data-v="Prospective" onclick="ctSeg(this)">Prospective</button></div></div>
+          <div class="ctl"><label>Phase range (%)</label><input id="ctRange" class="otherbox" style="min-width:90px" placeholder="30-80" oninput="genCT()"></div>
+          <div class="ctl"><label>Sedation</label><div class="seg" id="ctSed"><button data-v="None" class="on" onclick="ctSeg(this)">None</button><button data-v="Moderate sedation" onclick="ctSeg(this)">Moderate</button><button data-v="General anesthesia" onclick="ctSeg(this)">GA</button></div></div>
+        </div>
+
+        <div class="controls" style="margin-top:12px">
+          <div class="ctl"><label>Metoprolol</label><div class="seg" id="ctMet"><button data-v="notgiven" class="on" onclick="ctSeg(this)">Not given</button><button data-v="given" onclick="ctSeg(this)">Given</button></div></div>
+          <div class="ctl"><label>Nitroglycerine</label><div class="seg" id="ctNitro"><button data-v="notgiven" class="on" onclick="ctSeg(this)">Not given</button><button data-v="given" onclick="ctSeg(this)">Given</button></div></div>
+          <div class="ctl" style="flex:1"><label>Medication note</label><input id="ctMedReason" class="otherbox" style="width:100%;min-width:220px" value="Study not planned for coronary eval and HR in 60s" oninput="genCT()"></div>
+        </div>
+
+        <div class="controls" style="margin-top:12px">
+          <div class="ctl"><label>Contrast agent</label><select id="ctAgent" class="otherbox" onchange="genCT()"><option>Omnipaque (300)</option><option>Omnipaque (350)</option><option>Isovue (370)</option><option>Visipaque (320)</option><option>None</option></select></div>
+          <div class="ctl"><label>Amount (ml)</label><input id="ctAmount" class="otherbox" style="min-width:80px" placeholder="100" oninput="genCT()"></div>
+          <div class="ctl"><label>Route</label><select id="ctRoute" class="otherbox" onchange="genCT()"><option>arm PIV</option><option>hand PIV</option><option>antecubital PIV</option><option>central line</option><option>power PICC</option><option>central venous catheter</option></select></div>
+          <div class="ctl"><label>Timed to</label><select id="ctTiming" class="otherbox" onchange="genCT()"><option>main pulmonary artery</option><option>ascending aorta</option><option>aortic root</option><option>left ventricle</option><option>descending aorta</option></select></div>
+        </div>
+
+        <div class="controls" style="margin-top:12px">
+          <div class="ctl"><label>Difficult IV access</label><div class="seg" id="ctIV"><button data-v="No" class="on" onclick="ctSeg(this)">No</button><button data-v="Yes" onclick="ctSeg(this)">Yes</button></div></div>
+          <div class="ctl"><label>Adverse reaction</label><div class="seg" id="ctAdv"><button data-v="None" class="on" onclick="ctSeg(this)">None</button><button data-v="Yes" onclick="ctSeg(this)">Yes</button></div></div>
+          <div class="ctl" style="flex:1"><label>If reaction, describe</label><input id="ctAdvTxt" class="otherbox" style="width:100%;min-width:180px" placeholder="reaction details" oninput="genCT()"></div>
+        </div>
+
+        <div class="ctl" style="display:block;margin-top:10px"><label>Study quality</label><input id="ctQuality" class="otherbox" style="width:100%" value="good for right heart" oninput="genCT()"></div>
+
+        <div class="controls" style="margin-top:12px">
+          <div class="ctl"><label>Metal artifacts</label><div class="seg" id="ctMetal"><button data-v="No" class="on" onclick="ctSeg(this)">No</button><button data-v="Yes" onclick="ctSeg(this)">Yes</button></div></div>
+          <div class="ctl" style="flex:1"><label>If yes, describe</label><input id="ctMetalTxt" class="otherbox" style="width:100%;min-width:220px" placeholder="e.g. ICD and pacing lead through the right atrium, terminating in the right ventricle" oninput="genCT()"></div>
+        </div>
+
+        <div class="controls" style="margin-top:12px">
+          <div class="ctl"><label>Complications (IV infiltration)</label><div class="seg" id="ctComp"><button data-v="None" class="on" onclick="ctSeg(this)">None</button><button data-v="Yes" onclick="ctSeg(this)">Yes</button></div></div>
+          <div class="ctl" style="flex:1"><label>If yes, describe</label><input id="ctCompTxt" class="otherbox" style="width:100%;min-width:180px" placeholder="details" oninput="genCT()"></div>
+        </div>
+
+        <div class="controls" style="margin-top:12px">
+          <div class="ctl"><label>kV</label><input id="ctKV" class="otherbox" style="min-width:70px" placeholder="120" oninput="genCT()"></div>
+          <div class="ctl"><label>Total DLP (mGy&middot;cm)</label><input id="ctDLP" class="otherbox" style="min-width:90px" placeholder="e.g. 350" oninput="genCT()"></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Generated technique</h2>
+        <textarea id="ctOutput" spellcheck="false" style="min-height:560px"></textarea>
+        <div class="btnrow"><button class="btn btn-primary" onclick="copyCT()">Copy technique</button><span class="copied" id="ctCopied">Copied &#10003;</span></div>
+      </div>
+    </div>
+  </div><!-- /tabCTReport -->
 </div>
 
 <script>
@@ -1092,12 +1173,10 @@ function bInterpret(z){const a=Math.abs(z);if(a<=2)return 'normal in size';const
 /* ==================================================================== */
 
 function showTab(which){
-  const rep=which==='report';
-  document.getElementById('tabReport').style.display=rep?'':'none';
-  document.getElementById('tabTool').style.display=rep?'none':'';
-  document.getElementById('tabbtnReport').classList.toggle('on',rep);
-  document.getElementById('tabbtnTool').classList.toggle('on',!rep);
-  if(rep){
+  const tabs={tool:'tabTool', report:'tabReport', ctreport:'tabCTReport'};
+  const btns={tool:'tabbtnTool', report:'tabbtnReport', ctreport:'tabbtnCT'};
+  Object.keys(tabs).forEach(k=>{ const p=document.getElementById(tabs[k]); if(p) p.style.display=(k===which)?'':'none'; const b=document.getElementById(btns[k]); if(b) b.classList.toggle('on',k===which); });
+  if(which==='report'){
     /* pull whatever is in the tool inputs into the report inputs */
     const i=document.getElementById('input'), d=document.getElementById('bDims');
     if(i && document.getElementById('rInput').value.trim()==='') document.getElementById('rInput').value=i.value;
@@ -1105,7 +1184,8 @@ function showTab(which){
     const tb=document.getElementById('topBSA'); if(tb) document.getElementById('topBSA2').value=tb.value;
     syncSegR();
     genReport();
-  } else { syncMainSegs(); }
+  } else if(which==='ctreport'){ genCT(); }
+  else { syncMainSegs(); }
 }
 /* reflect state into the report-tab band/sex segmented controls */
 function syncSegR(){ ['bandR','sexR'].forEach(id=>{ const key=id==='bandR'?'band':'sex'; const box=document.getElementById(id); if(!box)return; box.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.v===state[key])); }); }
@@ -1329,9 +1409,104 @@ function refText(R){
    myocarditis / cardiomyopathy studies, off otherwise */
 function studyChanged(){
   const t=document.getElementById('rStudy').value;
-  rState.tissue.mode=(t==='myocarditis'||t==='cmp')?'normal':'omit';
-  renderFindRows();
-  genReport();
+  const show=(t==='myocarditis'||t==='cmp');
+  const panel=document.getElementById('lgePanel'); if(panel) panel.style.display=show?'':'none';
+  if(show){ buildLGE(); updateLGE(); }        /* updateLGE sets tissue text + re-renders */
+  else { rState.tissue.mode='omit'; rState.tissue.text=''; renderFindRows(); genReport(); }
+}
+
+/* ---- interactive AHA 17-segment LGE map, linked across views ---- */
+const SEG17={1:'basal anterior',2:'basal anteroseptal',3:'basal inferoseptal',4:'basal inferior',5:'basal inferolateral',6:'basal anterolateral',7:'mid anterior',8:'mid anteroseptal',9:'mid inferoseptal',10:'mid inferior',11:'mid inferolateral',12:'mid anterolateral',13:'apical anterior',14:'apical septal',15:'apical inferior',16:'apical lateral',17:'apex'};
+/* long-axis views: segment order [leftBasal, leftMid, apicalLeft, apex, apicalRight, rightMid, rightBasal] */
+const LAX_VIEWS=[
+  {title:'Apical 4-chamber (A4C)',  segs:[3,9,14,17,16,12,6]},
+  {title:'Apical 2-chamber (A2C)',  segs:[4,10,15,17,13,7,1]},
+  {title:'Apical 3-chamber (PLAX)', segs:[5,11,16,17,13,8,2]}
+];
+/* short-axis rings: [segId, centerAngle] clockwise from top */
+const PSAX_VIEWS=[
+  {level:'Basal',   segs:[[1,0],[6,60],[5,120],[4,180],[3,240],[2,300]]},
+  {level:'Mid',     segs:[[7,0],[12,60],[11,120],[10,180],[9,240],[8,300]]},
+  {level:'Apical',  segs:[[13,0],[16,90],[15,180],[14,270]], apex:17}
+];
+const seg17={};                                /* id -> {sub:bool, mid:bool} */
+function lgePt(cx,cy,rad,a){ const t=a*Math.PI/180; return {x:cx+rad*Math.sin(t), y:cy-rad*Math.cos(t)}; }
+function annularSector(cx,cy,ri,ro,a1,a2){
+  const p1o=lgePt(cx,cy,ro,a1),p2o=lgePt(cx,cy,ro,a2),p2i=lgePt(cx,cy,ri,a2),p1i=lgePt(cx,cy,ri,a1);
+  const large=(a2-a1)>180?1:0, f=n=>n.toFixed(1);
+  return `M${f(p1o.x)} ${f(p1o.y)} A${ro} ${ro} 0 ${large} 1 ${f(p2o.x)} ${f(p2o.y)} L${f(p2i.x)} ${f(p2i.y)} A${ri} ${ri} 0 ${large} 0 ${f(p1i.x)} ${f(p1i.y)} Z`;
+}
+function rectPath(x1,y1,x2,y2){ return `M${x1} ${y1} L${x2} ${y1} L${x2} ${y2} L${x1} ${y2} Z`; }
+function cellCls(id,layer){ const s=seg17[id]; return (s&&s[layer])?layer:''; }
+function wallOf(id){ const p=SEG17[id].split(' '); return p.length>1?p.slice(1).join(' '):p[0]; }
+function lblText(x,y,anchor,name){
+  const parts=name.split(' ');
+  if(parts.length===1) return `<text class="lgelbl" x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="${anchor}">${cap(name)}</text>`;
+  return `<text class="lgelbl" x="${x.toFixed(1)}" y="${(y-4).toFixed(1)}" text-anchor="${anchor}">${cap(parts[0])}</text>`+
+         `<text class="lgelbl" x="${x.toFixed(1)}" y="${(y+6).toFixed(1)}" text-anchor="${anchor}">${parts.slice(1).join(' ')}</text>`;
+}
+/* one clickable band: layer = 'sub' (subepicardial) or 'mid' (mid-myocardial) */
+function cell(id,layer,d,shape){
+  const t=`<title>${cap(SEG17[id])} — ${layer==='sub'?'subepicardial':'mid-myocardial'}</title>`;
+  if(shape==='circle') return `<circle class="lgeseg ${cellCls(id,layer)}" data-seg="${id}" data-layer="${layer}" onclick="clickSeg(${id},'${layer}')" ${d}>${t}</circle>`;
+  return `<path class="lgeseg ${cellCls(id,layer)}" data-seg="${id}" data-layer="${layer}" onclick="clickSeg(${id},'${layer}')" d="${d}">${t}</path>`;
+}
+function laxSVG(view){
+  const Lx=[124,146], Rx=[214,236], yS=74, yMid=156, yBase=238, acx=180, acy=74, ri=34, ro=56, Rm=(ri+ro)/2;
+  const s=view.segs; let p='';
+  /* wall segment split into subepi (epicardial half) + mid (cavity half) */
+  const wall=(id,x0,x1,yTop,yBot,epiLeft)=>{ const xm=(x0+x1)/2;
+    const sub=epiLeft?[x0,xm]:[xm,x1], mid=epiLeft?[xm,x1]:[x0,xm];
+    return cell(id,'sub',rectPath(sub[0],yTop,sub[1],yBot))+cell(id,'mid',rectPath(mid[0],yTop,mid[1],yBot)); };
+  /* arch segment split radially: outer arc = subepi, inner arc = mid */
+  const arch=(id,a1,a2)=> cell(id,'sub',annularSector(acx,acy,Rm,ro,a1,a2))+cell(id,'mid',annularSector(acx,acy,ri,Rm,a1,a2));
+  p+=wall(s[0],Lx[0],Lx[1],yMid,yBase,true);  p+=lblText(Lx[0]-8,(yMid+yBase)/2,'end',SEG17[s[0]]);
+  p+=wall(s[1],Lx[0],Lx[1],yS,yMid,true);      p+=lblText(Lx[0]-8,(yS+yMid)/2,'end',SEG17[s[1]]);
+  p+=arch(s[2],270,330); let l=lgePt(acx,acy,ro+13,300); p+=lblText(l.x,l.y,'end',SEG17[s[2]]);
+  p+=arch(s[3],330,390); l=lgePt(acx,acy,ro+12,360); p+=lblText(l.x,l.y-3,'middle',SEG17[s[3]]);
+  p+=arch(s[4],390,450); l=lgePt(acx,acy,ro+13,60); p+=lblText(l.x,l.y,'start',SEG17[s[4]]);
+  p+=wall(s[5],Rx[0],Rx[1],yS,yMid,false);     p+=lblText(Rx[1]+8,(yS+yMid)/2,'start',SEG17[s[5]]);
+  p+=wall(s[6],Rx[0],Rx[1],yMid,yBase,false);  p+=lblText(Rx[1]+8,(yMid+yBase)/2,'start',SEG17[s[6]]);
+  return `<div class="lgering"><svg viewBox="0 0 360 262">${p}<text class="lgetitle" x="180" y="256" text-anchor="middle">${view.title}</text></svg></div>`;
+}
+function psaxSVG(view){
+  const cx=130,cy=112,R=76,r=34,Rm=(R+r)/2, four=view.segs.length===4; let p='';
+  view.segs.forEach(seg=>{ const id=seg[0],ca=seg[1],hw=four?45:30;
+    p+=cell(id,'sub',annularSector(cx,cy,Rm,R,ca-hw,ca+hw));
+    p+=cell(id,'mid',annularSector(cx,cy,r,Rm,ca-hw,ca+hw));
+    const lp=lgePt(cx,cy,R+15,ca); p+=lblText(lp.x,lp.y,'middle',wallOf(id));
+  });
+  if(view.apex){ const rIn=18;
+    p+=cell(view.apex,'sub',`cx="${cx}" cy="${cy}" r="${r}"`,'circle');
+    p+=cell(view.apex,'mid',`cx="${cx}" cy="${cy}" r="${rIn}"`,'circle');
+    p+=`<text class="lgelbl" x="${cx}" y="${cy+3}" text-anchor="middle">Apex</text>`;
+  } else { p+=`<circle class="lgehole" cx="${cx}" cy="${cy}" r="${r}"></circle>`; }
+  return `<div class="lgering"><svg viewBox="0 0 260 250">${p}<text class="lgetitle" x="130" y="244" text-anchor="middle">${view.level}</text></svg></div>`;
+}
+function buildLGE(){
+  const lax=document.getElementById('lgeLAX'), ps=document.getElementById('lgePSAX'); if(!lax||!ps) return;
+  lax.innerHTML=LAX_VIEWS.map(laxSVG).join('');
+  ps.innerHTML=PSAX_VIEWS.map(psaxSVG).join('');
+}
+function clickSeg(id,layer){ const s=seg17[id]||(seg17[id]={sub:false,mid:false}); s[layer]=!s[layer]; if(!s.sub&&!s.mid) delete seg17[id]; buildLGE(); updateLGE(); }
+function clearLGE(){ Object.keys(seg17).forEach(k=>delete seg17[k]); buildLGE(); updateLGE(); }
+function lgeJoin(a){ return a.length<=1?(a[0]||''):a.length===2?a[0]+' and '+a[1]:a.slice(0,-1).join(', ')+', and '+a[a.length-1]; }
+function lgeSentence(){
+  const g={sub:[],mid:[],both:[]};
+  Object.keys(seg17).forEach(id=>{ const s=seg17[id]; g[s.sub&&s.mid?'both':s.sub?'sub':'mid'].push(+id); });
+  const nm=a=>{ a.sort((x,y)=>x-y); return lgeJoin(a.map(id=>SEG17[id])); };
+  const parts=[];
+  if(g.sub.length)  parts.push('Subepicardial late gadolinium enhancement involving the '+nm(g.sub)+' segment'+(g.sub.length>1?'s':'')+'.');
+  if(g.mid.length)  parts.push('Mid-myocardial late gadolinium enhancement involving the '+nm(g.mid)+' segment'+(g.mid.length>1?'s':'')+'.');
+  if(g.both.length) parts.push('Transmural (subepicardial and mid-myocardial) late gadolinium enhancement involving the '+nm(g.both)+' segment'+(g.both.length>1?'s':'')+'.');
+  return parts.join(' ');
+}
+function updateLGE(){
+  const txt=lgeSentence();
+  const el=document.getElementById('lgeText'); if(el) el.textContent=txt||'No segments selected.';
+  if(txt){ rState.tissue.mode='abnormal'; rState.tissue.text=txt; }
+  else { const t=document.getElementById('rStudy').value; rState.tissue.mode=(t==='myocarditis'||t==='cmp')?'normal':'omit'; rState.tissue.text=''; }
+  renderFindRows(); genReport();
 }
 
 /* ---- assemble the report ---- */
@@ -1378,6 +1553,50 @@ async function copyReport(){
   const t=document.getElementById('rOutput').value; if(!t) return;
   try{ await navigator.clipboard.writeText(t); }catch(e){}
   const c=document.getElementById('rCopied'); c.style.display='inline'; setTimeout(()=>c.style.display='none',1600);
+}
+
+/* ==================================================================== */
+/* =========================  CT REPORT TAB  ========================== */
+/* ==================================================================== */
+function ctSeg(btn){ const box=btn.parentElement; box.querySelectorAll('button').forEach(x=>x.classList.remove('on')); btn.classList.add('on'); genCT(); }
+function ctSel(id){ const b=document.querySelector('#'+id+' .on'); return b?b.dataset.v:''; }   /* segmented value */
+function ctV(id){ const e=document.getElementById(id); return e?e.value:''; }                     /* select/text value */
+function ctT(id){ return ctV(id).trim(); }
+function genCT(){
+  const out=document.getElementById('ctOutput'); if(!out) return;
+  if(document.activeElement===out) return;
+  const L=[];
+  L.push('Scanner: CCMC Siemens');
+  L.push('Acquisitions: Contrast-enhanced electrocardiographically gated computed tomography heart');
+  const proto=ctSel('ctProto'), rng=ctT('ctRange');
+  L.push('Gating: ECG ('+proto+' protocol'+(rng?' '+rng+'%':'')+')');
+  L.push('Sedation: '+ctSel('ctSed'));
+  const met=ctSel('ctMet')==='given', nitro=ctSel('ctNitro')==='given', reason=ctT('ctMedReason');
+  let med='Medication: ';
+  if(!met&&!nitro) med+='Metoprolol and Nitroglycerine was not given.';
+  else if(met&&nitro) med+='Metoprolol and Nitroglycerine were given.';
+  else if(met) med+='Metoprolol was given. Nitroglycerine was not given.';
+  else med+='Nitroglycerine was given. Metoprolol was not given.';
+  if(reason) med+=' '+reason;
+  L.push(med);
+  L.push('Contrast: '+ctV('ctAgent')+', Amount: '+(ctT('ctAmount')||'___')+' ml ('+ctV('ctRoute')+' injection)');
+  L.push('Contrast timed to '+ctV('ctTiming'));
+  L.push('Difficult IV access: '+ctSel('ctIV'));
+  L.push('Adverse reaction to contrast: '+(ctSel('ctAdv')==='None'?'None':('Yes'+(ctT('ctAdvTxt')?', '+ctT('ctAdvTxt'):''))));
+  L.push('Quality: '+(ctT('ctQuality')||'good'));
+  L.push('Metal artifacts: '+(ctSel('ctMetal')==='No'?'No':('Yes'+(ctT('ctMetalTxt')?', '+ctT('ctMetalTxt'):''))));
+  L.push('Post-processing: Three-dimensional volume-rendered and multiplanar reconstructions generated with CVI 42 (Circle) software');
+  L.push('Complications (IV infiltration): '+(ctSel('ctComp')==='None'?'None':('Yes'+(ctT('ctCompTxt')?', '+ctT('ctCompTxt'):''))));
+  L.push('Study performed using '+(ctT('ctKV')||'___')+' KV, Total DLP '+(ctT('ctDLP')||'___')+' mGycm');
+  L.push('Sagittal and coronal reformats were performed as well as 3D (MIP) reconstructions.');
+  L.push('Anatomic scan was obtained after injecting the contrast, and sequence was performed at 0.5 mm voxel resolution. The examination and FOV is directed at the evaluation of the cardiovascular system for the indications provided.');
+  L.push('Non-cardiac structures including airways are not examined.');
+  out.value=L.join('\n');
+}
+async function copyCT(){
+  const t=document.getElementById('ctOutput').value; if(!t) return;
+  try{ await navigator.clipboard.writeText(t); }catch(e){}
+  const c=document.getElementById('ctCopied'); c.style.display='inline'; setTimeout(()=>c.style.display='none',1600);
 }
 
 /* ---- init: default to the Z-scores tab ---- */
