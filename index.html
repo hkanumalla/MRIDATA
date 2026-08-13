@@ -290,7 +290,12 @@
         <h2>CT technique</h2>
         <p class="note" style="margin-top:0">Toggle the options and fill the boxes; the technique text builds on the right. Numeric boxes start blank &mdash; a blank shows as <code>___</code>.</p>
 
-        <p class="note" style="margin:0 0 10px"><b>Scanner:</b> CCMC Siemens &nbsp;&middot;&nbsp; <b>Acquisitions:</b> Contrast-enhanced electrocardiographically gated computed tomography heart <span style="color:var(--muted)">(fixed)</span></p>
+        <div class="ctl" style="display:block"><label>Scanner</label>
+          <select id="ctScanner" class="otherbox" style="min-width:250px" onchange="genCT()">
+            <option selected>CCMC Siemens Somatom</option>
+            <option>NSUH Canon Aquilion</option>
+          </select></div>
+        <p class="note" style="margin:8px 0 10px"><b>Acquisitions:</b> Contrast-enhanced electrocardiographically gated computed tomography heart <span style="color:var(--muted)">(fixed)</span></p>
 
         <div class="controls" style="margin-top:4px">
           <div class="ctl"><label>Gating protocol</label><div class="seg" id="ctProto"><button data-v="Retrospective" class="on" onclick="ctSeg(this)">Retrospective</button><button data-v="Prospective" onclick="ctSeg(this)">Prospective</button></div></div>
@@ -1566,7 +1571,7 @@ function genCT(){
   const out=document.getElementById('ctOutput'); if(!out) return;
   if(document.activeElement===out) return;
   const L=[];
-  L.push('Scanner: CCMC Siemens');
+  L.push('Scanner: '+(ctV('ctScanner')||'CCMC Siemens Somatom'));
   L.push('Acquisitions: Contrast-enhanced electrocardiographically gated computed tomography heart');
   const proto=ctSel('ctProto'), rng=ctT('ctRange');
   L.push('Gating: ECG ('+proto+' protocol'+(rng?' '+rng+'%':'')+')');
