@@ -252,6 +252,7 @@
         <div class="controls" style="margin-top:12px">
           <div class="ctl"><label>Heart rate</label><input id="rHR" class="otherbox" style="min-width:70px" placeholder="bpm" oninput="genReport()"></div>
           <span id="techMRI" style="display:contents">
+            <div class="ctl"><label>Coil</label><select id="rCoil" class="otherbox" style="min-width:180px" onchange="genReport()"><option>18-channel body/cardiac coil</option><option>4-channel large flex coil</option><option>cardiac coil</option></select></div>
             <div class="ctl"><label>Field</label><select id="rTesla" class="otherbox" style="min-width:70px" onchange="genReport()"><option>1.5 T</option><option>3 T</option></select></div>
             <div class="ctl"><label>Gad (mL)</label><input id="rGad" class="otherbox" style="min-width:60px" oninput="genReport()"></div>
             <div class="ctl"><label>Sedation</label><select id="rSed" class="otherbox" style="min-width:110px" onchange="genReport()"><option>None</option><option>General anesthesia</option><option>Sedation</option></select></div>
@@ -273,13 +274,25 @@
       </div>
     </div>
     <div class="card" id="lgePanel" style="display:none;margin-top:20px">
-      <h2>Myocardial LGE mapping (17-segment model)</h2>
-      <p class="note" style="margin-top:0">Each segment has two clickable bands: the <b>outer</b> band (away from the cavity) is <b>subepicardial</b>, the <b>inner</b> band is <b>mid-myocardial</b>. Click either &mdash; it lights up in <b>every</b> view that contains that segment. Click again to clear.
+      <h2>Myocardial tissue mapping (17-segment model)</h2>
+      <p class="note" style="margin-top:0">Pick what you're marking, then click segments. Outer band = <b>subepicardial</b>, inner band = <b>mid-myocardial</b>. A segment lights up in <b>every</b> view. Anything you don't mark is reported normal automatically.
         &nbsp;&nbsp;<span class="lgechip" style="background:#e8663a"></span> subepicardial &nbsp;
         <span class="lgechip" style="background:#3a6ee8"></span> mid-myocardial</p>
+      <div class="controls" style="margin-bottom:8px">
+        <div class="ctl"><label>Marking</label><div class="seg" id="lgeMapType"><button data-v="lge" class="on" onclick="setMapType(this)">LGE (fibrosis)</button><button data-v="t2" onclick="setMapType(this)">T2 edema</button><button data-v="ege" onclick="setMapType(this)">EGE (hyperemia)</button></div></div>
+      </div>
       <div class="lgewrap" id="lgeLAX"></div>
       <div class="lgewrap" id="lgePSAX" style="margin-top:4px"></div>
-      <div style="margin-top:12px;font-size:14px"><b>Generated:</b> <span id="lgeText" style="color:var(--muted)">No segments selected.</span></div>
+      <h2 style="margin:16px 0 4px;font-size:16px">Parametric mapping values</h2>
+      <p class="note" style="margin:0 0 8px">Type any values you have; the mapping section and its reference boilerplate are added automatically. Leave blank to omit the whole section.</p>
+      <div class="controls">
+        <div class="ctl"><label>Native T1 (ms)</label><input id="rT1" class="otherbox" style="min-width:120px" placeholder="e.g. 1009 ± 88" oninput="genReport()"></div>
+        <div class="ctl"><label>CA (post) T1 (ms)</label><input id="rCAT1" class="otherbox" style="min-width:120px" placeholder="e.g. 374 ± 42" oninput="genReport()"></div>
+        <div class="ctl"><label>ECV (%)</label><input id="rECV" class="otherbox" style="min-width:90px" placeholder="e.g. 25 ± 9" oninput="genReport()"></div>
+        <div class="ctl"><label>Hct (%)</label><input id="rHct" class="otherbox" style="min-width:70px" placeholder="e.g. 49" oninput="genReport()"></div>
+        <div class="ctl"><label>Native T2 (ms)</label><input id="rT2" class="otherbox" style="min-width:110px" placeholder="e.g. 51 ± 8" oninput="genReport()"></div>
+      </div>
+      <div style="margin-top:12px;font-size:14px"><b>Marked:</b> <span id="lgeText" style="color:var(--muted)">No segments selected — all layers reported normal.</span></div>
       <div class="btnrow"><button class="btn" onclick="clearLGE()">Clear all segments</button></div>
     </div>
   </div><!-- /tabReport -->
@@ -1208,8 +1221,8 @@ wireSegR('bandR','band'); wireSegR('sexR','sex');
 /* ---- modality (MRI vs CT) ---- */
 let rptModality='mri';
 const FIND_DEFAULTS={
-  mri:{situs:'normal',ventricles:'normal',atria:'normal',avalve:'normal',mvalve:'normal',aroot:'normal',ascao:'normal',arch:'normal',dao:'normal',pa:'normal',coronaries:'omit',tissue:'omit',peri:'normal',shunt:'normal'},
-  ct: {situs:'omit',ventricles:'omit',atria:'omit',avalve:'omit',mvalve:'omit',aroot:'normal',ascao:'normal',arch:'normal',dao:'normal',pa:'normal',coronaries:'normal',tissue:'omit',peri:'omit',shunt:'omit'}
+  mri:{situs:'normal',ventricles:'normal',atria:'normal',avalve:'normal',mvalve:'normal',aroot:'normal',ascao:'normal',arch:'normal',dao:'normal',pa:'normal',veins:'normal',coronaries:'omit',tissue:'omit',peri:'normal',shunt:'normal'},
+  ct: {situs:'omit',ventricles:'omit',atria:'omit',avalve:'omit',mvalve:'omit',aroot:'normal',ascao:'normal',arch:'normal',dao:'normal',pa:'normal',veins:'omit',coronaries:'normal',tissue:'omit',peri:'omit',shunt:'omit'}
 };
 function setModality(m){
   rptModality=m;
@@ -1229,8 +1242,9 @@ function syncBSAFromReport(){ const tb=document.getElementById('topBSA'); if(tb)
 
 /* ---- findings rows ---- */
 const RFIND=[
-  {id:'situs',   label:'Situs / connections', def:'normal'},
+  {id:'situs',   label:'Situs / segments / position', def:'normal'},
   {id:'ventricles', label:'Ventricles',       def:'normal'},
+  {id:'tissue',  label:'Tissue characterization', def:'omit'},
   {id:'atria',   label:'Atria',               def:'normal'},
   {id:'avalve',  label:'Aortic valve',        def:'normal'},
   {id:'mvalve',  label:'Mitral / other valves', def:'normal'},
@@ -1239,8 +1253,8 @@ const RFIND=[
   {id:'arch',    label:'Aortic arch',         def:'normal'},
   {id:'dao',     label:'Descending aorta',    def:'normal'},
   {id:'pa',      label:'Pulmonary arteries',  def:'normal'},
+  {id:'veins',   label:'Venous connections',  def:'normal'},
   {id:'coronaries', label:'Coronary arteries', def:'omit'},
-  {id:'tissue',  label:'Tissue characterization', def:'omit'},
   {id:'peri',    label:'Pericardium',         def:'normal'},
   {id:'shunt',   label:'PC flows / shunt',    def:'normal'}
 ];
@@ -1313,9 +1327,9 @@ function fShunt(R){
 }
 function normalFinding(id,R){
   switch(id){
-    case 'situs': return 'Situs solitus with normal systemic and pulmonary venous connections and normal atrioventricular and ventriculoarterial connections.';
-    case 'ventricles': return fVentricles(R);
-    case 'atria': return 'Normal right and left atria.';
+    case 'situs': return 'Visceral situs solitus\nCardiac Segments: {S, D, S}\nCardiac Position: Levocardia';
+    case 'ventricles': return fVentricles(R)+' No regional wall motion abnormalities.';
+    case 'atria': return 'Normal right and left atria. No evidence of mitral and tricuspid regurgitation on cine SSFP imaging.';
     case 'avalve': return 'Tricommissural aortic valve without stenosis.';
     case 'mvalve': return 'Normal mitral, tricuspid and pulmonary valves.';
     case 'aroot': return fAroot(R);
@@ -1323,8 +1337,9 @@ function normalFinding(id,R){
     case 'arch': return 'Left aortic arch with normal branching pattern. Normal transverse arch and isthmus, without coarctation.';
     case 'dao': return 'The thoracic descending aorta is normal in caliber.';
     case 'pa': return 'Normal main pulmonary artery with good size, continuous branch pulmonary arteries.';
+    case 'veins': return 'Normal systemic and pulmonary venous connections.';
     case 'coronaries': return 'Normal origins and proximal courses of the right and left main coronary arteries. Normal branching and proximal courses of the left anterior descending and circumflex arteries.';
-    case 'tissue': return 'No myocardial edema on T2-weighted imaging. No regional or global late gadolinium enhancement. Normal native T1 and extracellular volume.';
+    case 'tissue': return tissueBlock();
     case 'peri': return 'No pericardial effusion.';
     case 'shunt': return fShunt(R);
   }
@@ -1349,6 +1364,17 @@ function buildImpressionR(R){
   if(lvNorm&&rvNorm&&(M.LVEDVi!=null||M.RVEDVi!=null)) imp.push('Normal biventricular size and systolic function.');
   else {
     if(rState.ventricles.mode==='normal'&&(M.LVEDVi!=null||M.RVEDVi!=null)) imp.push(fVentricles(R));
+  }
+  /* tissue characterization summary for myocarditis / cardiomyopathy */
+  const study=(document.getElementById('rStudy')||{}).value;
+  if((study==='myocarditis'||study==='cmp') && rState.tissue.mode==='normal'){
+    if(anySel(MAPS.t2)||anySel(MAPS.ege)||anySel(MAPS.lge)){
+      if(anySel(MAPS.t2)) imp.push(t2Line());
+      if(anySel(MAPS.ege)) imp.push(egeLine());
+      if(anySel(MAPS.lge)) imp.push(lgeLine());
+    } else {
+      imp.push('No evidence of myocardial edema, hyperemia, or late gadolinium enhancement.');
+    }
   }
   /* pull each abnormal free-text finding into the impression */
   RFIND.forEach(f=>{ const st=rState[f.id]; if(st.mode==='abnormal'&&st.text.trim()) imp.push(st.text.trim()); });
@@ -1395,10 +1421,9 @@ function indicationText(t){
   })[t] || 'Assessment of ventricular size and systolic function.';
 }
 function techniqueSequences(t){
-  let s='Steady-state free precession cine imaging in standard short- and long-axis planes; phase-contrast flow imaging of the great vessels; gadolinium-enhanced angiography.';
-  if(t==='cmp'||t==='myocarditis') s+=' T2-weighted imaging, native and post-contrast T1 mapping with ECV, and late gadolinium enhancement for tissue characterization.';
-  else s+=' Late gadolinium enhancement imaging.';
-  return s;
+  if(t==='myocarditis'||t==='cmp')
+    return '3-plane localizers; Axial, sagittal and coronal non-gated true FISP sequences; ECG-gated, breath-hold, Axial, 2-chamber, 4-chamber, short axis, LVOT, RVOT and short axis of aortic root cine SSFP sequences; ECG-gated, breath-hold, DIR T1w with and without fat saturation and T2w with fat saturation short axis sequences; ECG-gated, breath-through phase-velocity imaging of aortic root, ascending aorta and main pulmonary artery; Resting first-pass perfusion sequences (Gadolinium — Gadovist); Early gadolinium enhancement sequences (Ti: 600 msec) in short axis planes; Myocardial delayed enhancement imaging in ventricular 4-chamber, 2-chamber, LVOT, RVOT and short axis planes; T1 mapping (pre and post contrast) in short axis planes; T2 mapping.';
+  return 'Steady-state free precession cine imaging in standard short- and long-axis planes; phase-contrast flow imaging of the great vessels; gadolinium-enhanced angiography. Late gadolinium enhancement imaging.';
 }
 function refText(R){
   const hasVent = R.M && Object.keys(R.M).length>0;
@@ -1406,9 +1431,15 @@ function refText(R){
   if(rptModality==='ct' || !hasVent){
     return hasVessel ? "*Vessel z-scores based on Boston Children's Hospital normative data (mean dimensions)." : '';
   }
-  return (R.band||state.band)==='adult'
-    ? '*ref: Alfakih et al; Normal Human Left and Right Ventricular dimensions for MRI as Assessed by Turbo Gradient Echo and Steady-State Free Precession Imaging Sequences. J Mag Res Imag 2003; 17: 323-329'
-    : '*ref: Robbers-Visser et al; Normal Biventricular Function, Volumes, and Mass in Children Aged 8 to 17 Years. J Mag Res Imag 2009; 29: 552-559';
+  const lines=[ (R.band||state.band)==='adult'
+    ? '* ref: Alfakih et al; Normal Human Left and Right Ventricular dimensions for MRI as Assessed by Turbo Gradient Echo and Steady-State Free Precession Imaging Sequences. J Mag Res Imag 2003; 17: 323-329'
+    : '* ref: Robbers-Visser et al; Normal Biventricular Function, Volumes, and Mass in Children Aged 8 to 17 Years. J Mag Res Imag 2009; 29: 552-559' ];
+  const study=(document.getElementById('rStudy')||{}).value;
+  if(study==='myocarditis'||study==='cmp'){
+    lines.push('** ref: Friedrich et al; Cardiovascular magnetic resonance in myocarditis: A JACC White Paper. J Am Coll Cardiol. 2009;53(17):1475-87.');
+    lines.push('*** ref: Ferreira et al. Cardiovascular Magnetic Resonance in Nonischemic Myocardial Inflammation: Expert Recommendations. J Am Coll Cardiol. 2018;72(24):3158-3176.');
+  }
+  return lines.join('\n');
 }
 /* study-type change: auto-toggle the tissue-characterization finding on for
    myocarditis / cardiomyopathy studies, off otherwise */
@@ -1434,7 +1465,9 @@ const PSAX_VIEWS=[
   {level:'Mid',     segs:[[7,0],[12,60],[11,120],[10,180],[9,240],[8,300]]},
   {level:'Apical',  segs:[[13,0],[16,90],[15,180],[14,270]], apex:17}
 ];
-const seg17={};                                /* id -> {sub:bool, mid:bool} */
+const MAPS={lge:{}, t2:{}, ege:{}};            /* type -> {id -> {sub,mid}} */
+let activeMap='lge';
+const rvT=id=>{ const e=document.getElementById(id); return e?e.value.trim():''; };
 function lgePt(cx,cy,rad,a){ const t=a*Math.PI/180; return {x:cx+rad*Math.sin(t), y:cy-rad*Math.cos(t)}; }
 function annularSector(cx,cy,ri,ro,a1,a2){
   const p1o=lgePt(cx,cy,ro,a1),p2o=lgePt(cx,cy,ro,a2),p2i=lgePt(cx,cy,ri,a2),p1i=lgePt(cx,cy,ri,a1);
@@ -1442,7 +1475,7 @@ function annularSector(cx,cy,ri,ro,a1,a2){
   return `M${f(p1o.x)} ${f(p1o.y)} A${ro} ${ro} 0 ${large} 1 ${f(p2o.x)} ${f(p2o.y)} L${f(p2i.x)} ${f(p2i.y)} A${ri} ${ri} 0 ${large} 0 ${f(p1i.x)} ${f(p1i.y)} Z`;
 }
 function rectPath(x1,y1,x2,y2){ return `M${x1} ${y1} L${x2} ${y1} L${x2} ${y2} L${x1} ${y2} Z`; }
-function cellCls(id,layer){ const s=seg17[id]; return (s&&s[layer])?layer:''; }
+function cellCls(id,layer){ const s=MAPS[activeMap][id]; return (s&&s[layer])?layer:''; }
 function wallOf(id){ const p=SEG17[id].split(' '); return p.length>1?p.slice(1).join(' '):p[0]; }
 function lblText(x,y,anchor,name){
   const parts=name.split(' ');
@@ -1493,25 +1526,40 @@ function buildLGE(){
   lax.innerHTML=LAX_VIEWS.map(laxSVG).join('');
   ps.innerHTML=PSAX_VIEWS.map(psaxSVG).join('');
 }
-function clickSeg(id,layer){ const s=seg17[id]||(seg17[id]={sub:false,mid:false}); s[layer]=!s[layer]; if(!s.sub&&!s.mid) delete seg17[id]; buildLGE(); updateLGE(); }
-function clearLGE(){ Object.keys(seg17).forEach(k=>delete seg17[k]); buildLGE(); updateLGE(); }
+function clickSeg(id,layer){ const m=MAPS[activeMap]; const s=m[id]||(m[id]={sub:false,mid:false}); s[layer]=!s[layer]; if(!s.sub&&!s.mid) delete m[id]; buildLGE(); updateLGE(); }
+function clearLGE(){ MAPS.lge={}; MAPS.t2={}; MAPS.ege={}; buildLGE(); updateLGE(); }
+function setMapType(btn){ const box=btn.parentElement; box.querySelectorAll('button').forEach(x=>x.classList.remove('on')); btn.classList.add('on'); activeMap=btn.dataset.v; buildLGE(); updateLGE(); }
 function lgeJoin(a){ return a.length<=1?(a[0]||''):a.length===2?a[0]+' and '+a[1]:a.slice(0,-1).join(', ')+', and '+a[a.length-1]; }
-function lgeSentence(){
-  const g={sub:[],mid:[],both:[]};
-  Object.keys(seg17).forEach(id=>{ const s=seg17[id]; g[s.sub&&s.mid?'both':s.sub?'sub':'mid'].push(+id); });
-  const nm=a=>{ a.sort((x,y)=>x-y); return lgeJoin(a.map(id=>SEG17[id])); };
-  const parts=[];
-  if(g.sub.length)  parts.push('Subepicardial late gadolinium enhancement involving the '+nm(g.sub)+' segment'+(g.sub.length>1?'s':'')+'.');
-  if(g.mid.length)  parts.push('Mid-myocardial late gadolinium enhancement involving the '+nm(g.mid)+' segment'+(g.mid.length>1?'s':'')+'.');
-  if(g.both.length) parts.push('Transmural (subepicardial and mid-myocardial) late gadolinium enhancement involving the '+nm(g.both)+' segment'+(g.both.length>1?'s':'')+'.');
-  return parts.join(' ');
-}
+function mapDesc(map){ const sub=[],mid=[]; Object.keys(map).forEach(id=>{const s=map[id]; if(s.sub)sub.push(+id); if(s.mid)mid.push(+id);}); sub.sort((a,b)=>a-b); mid.sort((a,b)=>a-b); return {sub:sub.map(i=>SEG17[i]), mid:mid.map(i=>SEG17[i])}; }
+function anySel(map){ return Object.keys(map).length>0; }
+function layerPhrase(d){ const p=[]; if(d.sub.length) p.push('the subepicardial layer of the '+lgeJoin(d.sub)+' segment'+(d.sub.length>1?'s':'')); if(d.mid.length) p.push('the mid-myocardial layer of the '+lgeJoin(d.mid)+' segment'+(d.mid.length>1?'s':'')); return p.join(' and '); }
+function lgeLine(){ return anySel(MAPS.lge)?('Late gadolinium enhancement sequences: Positive late gadolinium enhancement in '+layerPhrase(mapDesc(MAPS.lge))+'.'):'Late gadolinium enhancement sequences: Negative myocardial delayed enhancement.'; }
+function t2Line(){ return anySel(MAPS.t2)?('T2w with fat saturation sequences: Increased signal intensity in '+layerPhrase(mapDesc(MAPS.t2))+' — consistent with edema.'):'T2w with fat saturation sequences: No obvious increased signal intensity seen.'; }
+function egeLine(){ return anySel(MAPS.ege)?('Early gadolinium enhancement sequences (Ti: 600 msec): Increased signal intensity in '+layerPhrase(mapDesc(MAPS.ege))+' — consistent with hyperemia.'):'Early gadolinium enhancement sequences (Ti: 600 msec): No evidence of hyperemia.'; }
 function updateLGE(){
-  const txt=lgeSentence();
-  const el=document.getElementById('lgeText'); if(el) el.textContent=txt||'No segments selected.';
-  if(txt){ rState.tissue.mode='abnormal'; rState.tissue.text=txt; }
-  else { const t=document.getElementById('rStudy').value; rState.tissue.mode=(t==='myocarditis'||t==='cmp')?'normal':'omit'; rState.tissue.text=''; }
+  const el=document.getElementById('lgeText');
+  if(el){ const parts=[]; if(anySel(MAPS.lge))parts.push('LGE: '+layerPhrase(mapDesc(MAPS.lge))); if(anySel(MAPS.t2))parts.push('T2 edema: '+layerPhrase(mapDesc(MAPS.t2))); if(anySel(MAPS.ege))parts.push('EGE: '+layerPhrase(mapDesc(MAPS.ege))); el.textContent=parts.length?parts.join('  ·  '):'No segments selected — all layers reported normal.'; }
+  const t=document.getElementById('rStudy').value; rState.tissue.mode=(t==='myocarditis'||t==='cmp')?'normal':'omit'; rState.tissue.text='';
   renderFindRows(); genReport();
+}
+const T1_REF='(Ref: pediatric reference ranges — Pagano et al. Radiol Cardiothorac Imaging 2020;2(4):e190234: average native T1 1008 ± 31 ms. Institutional normative data not available.)';
+const T2_REF='(Ref: normal T2 ~53 ms, range 40–64 ms. Maceira et al. J Cardiovasc Magn Reson 2015;17(Suppl 1):P12; Alsaied et al. Pediatr Cardiol 2021;42(2):269–277. Institutional normative data not available.)';
+function tissueMapBlock(){
+  const t1=rvT('rT1'),cat1=rvT('rCAT1'),ecv=rvT('rECV'),hct=rvT('rHct'),t2=rvT('rT2');
+  if(!t1&&!cat1&&!ecv&&!t2) return [];
+  const L=['','Tissue mapping'];
+  if(t1) L.push('Native T1: '+t1+' ms');
+  if(cat1) L.push('CA T1: '+cat1+' ms');
+  if(ecv) L.push('ECV: '+ecv+' %'+(hct?' (using Hct of '+hct+'%)':''));
+  if(t2) L.push('Native T2: '+t2+' ms');
+  if(t1||cat1||ecv) L.push(T1_REF);
+  if(t2) L.push(T2_REF);
+  return L;
+}
+function tissueBlock(){
+  const L=['T1w with and without fat saturation sequences: No evidence of fibrofatty infiltration.', t2Line(), 'Resting first pass perfusion sequences: No perfusion deficits.', egeLine(), lgeLine()];
+  tissueMapBlock().forEach(l=>L.push(l));
+  return L.join('\n');
 }
 
 /* ---- assemble the report ---- */
@@ -1534,7 +1582,7 @@ function genReport(){
     L.push(ln);
     L.push('Multiplanar and 3D reconstructions generated; vessel dimensions measured on double-oblique MPR.');
   } else {
-    L.push('Cardiac coil, '+(v('rTesla')||'1.5 T')+'.   Gad dose: '+(v('rGad')||'___')+' mL.   Sedation: '+(v('rSed')||'None')+'.');
+    L.push((v('rCoil')||'18-channel body/cardiac coil')+', '+(v('rTesla')||'1.5 T')+' Siemens   Gad dose: '+(v('rGad')||'___')+' mL   Sedation: '+(v('rSed')||'None'));
     L.push(techniqueSequences(g('rStudy').value));
   }
   L.push('');
