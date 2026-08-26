@@ -1286,19 +1286,25 @@ function volAdj(z){ if(z==null) return 'normal'; if(z>=4) return 'severely dilat
 function efAdjLV(ef){ return ef>=55?'normal':ef>=45?'mildly reduced':ef>=35?'moderately reduced':'severely reduced'; }
 function efAdjRV(ef){ return ef>=48?'normal':ef>=40?'mildly reduced':ef>=30?'moderately reduced':'severely reduced'; }
 
+function szf(x){ let v=Math.round(x*10)/10; if(Object.is(v,-0))v=0; return (v>=0?'+':'')+v.toFixed(1); }   /* signed 1-decimal z, e.g. +0.4, -1.2, +0.0 */
+function volAdjTpl(z){ return z>=4?'severely dilated':z>=3?'moderately dilated':z>=2?'mildly dilated':z>=1.5?'borderline dilated':z<=-2?'small':'normal'; }
+function efAdjTpl(ef,n){ return ef>=n?'normal':ef>=n-10?'mildly decreased':ef>=n-20?'moderately decreased':'severely decreased'; }
 function fVentricles(R){
   const M=R.M||{};
-  const lz=(M.LVEDVi!=null)?calcZ('LVEDVi',M.LVEDVi).z:null;
-  const rz=(M.RVEDVi!=null)?calcZ('RVEDVi',M.RVEDVi).z:null;
-  const bits=[];
-  if(M.LVEDVi!=null) bits.push(cap(volAdj(lz))+' left ventricular volume (LVEDVi '+M.LVEDVi+', z '+fmtZ(lz)+')');
-  if(M.RVEDVi!=null) bits.push(volAdj(rz)+' right ventricular volume (RVEDVi '+M.RVEDVi+', z '+fmtZ(rz)+')');
-  let s = bits.length ? bits.join(', and ')+'.' : 'Normal biventricular volumes.';
-  const ef=[];
-  if(M.LVEF!=null) ef.push(efAdjLV(M.LVEF)+' left (LVEF '+M.LVEF+'%)');
-  if(M.RVEF!=null) ef.push(efAdjRV(M.RVEF)+' right (RVEF '+M.RVEF+'%)');
-  if(ef.length) s+=' There is '+ef.join(' and ')+' ventricular systolic function.';
-  return s;
+  const one=(side,vk,ek,n)=>{
+    if(M[vk]==null && M[ek]==null) return '';
+    let s;
+    if(M[vk]!=null){ const z=calcZ(vk,M[vk]).z; s=cap(volAdjTpl(z))+' '+side+' ventricular volume ('+vk+' '+M[vk]+' mL/m2, z: '+szf(z)+')'; }
+    else s='Normal '+side+' ventricular volume';
+    if(M[ek]!=null){ const c=calcZ(ek,M[ek]); s+=' with '+efAdjTpl(M[ek],n)+' ejection fraction ('+ek+' '+M[ek]+'%, z: '+szf(c.z)+')'; }
+    return s+'.';
+  };
+  return [one('left','LVEDVi','LVEF',55), one('right','RVEDVi','RVEF',48)].filter(Boolean).join(' ') || 'Normal biventricular volumes and systolic function.';
+}
+function fMass(R){
+  const M=R.M||{}; if(M.LVmassi==null) return '';
+  const z=calcZ('LVmassi',M.LVmassi).z;
+  return Math.abs(z)<2 ? 'Normal left ventricular mass.' : (z>0?'Increased':'Decreased')+' left ventricular mass (LV mass index '+M.LVmassi+' g/m2, z: '+szf(z)+').';
 }
 function fAroot(R){
   const G=grpByKey(R,'AOR'); if(!G) return 'Aortic root is normal in size.';
@@ -1328,7 +1334,7 @@ function fShunt(R){
 function normalFinding(id,R){
   switch(id){
     case 'situs': return 'Visceral situs solitus\nCardiac Segments: {S, D, S}\nCardiac Position: Levocardia';
-    case 'ventricles': return fVentricles(R)+' No regional wall motion abnormalities.';
+    case 'ventricles': { const m=fMass(R); return fVentricles(R)+' No regional wall motion abnormalities.'+(m?' '+m:''); }
     case 'atria': return 'Normal right and left atria. No evidence of mitral and tricuspid regurgitation on cine SSFP imaging.';
     case 'avalve': return 'Tricommissural aortic valve without stenosis.';
     case 'mvalve': return 'Normal mitral, tricuspid and pulmonary valves.';
