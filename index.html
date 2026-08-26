@@ -1213,7 +1213,7 @@ function syncMainSegs(){ [['band','band'],['sex','sex']].forEach(([id,key])=>{ c
 function wireSegR(id,key){
   const box=document.getElementById(id); if(!box) return;
   box.querySelectorAll('button').forEach(b=>{
-    b.onclick=()=>{ box.querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); state[key]=b.dataset.v; generate(); };
+    b.onclick=()=>{ box.querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); state[key]=b.dataset.v; generate(); if(typeof genReport==='function') genReport(); };
   });
 }
 wireSegR('bandR','band'); wireSegR('sexR','sex');
@@ -1436,8 +1436,8 @@ function refText(R){
   if(rptModality==='ct'){
     return hasVessel ? "*Vessel z-scores based on Boston Children's Hospital normative data (mean dimensions)." : '';
   }
-  /* MRI: always list the ventricular z-score reference for the chosen age band */
-  const lines=[ (R.band||state.band)==='adult'
+  /* MRI: always list the ventricular z-score reference for the currently-selected age band */
+  const lines=[ state.band==='adult'
     ? '* ref: Alfakih et al; Normal Human Left and Right Ventricular dimensions for MRI as Assessed by Turbo Gradient Echo and Steady-State Free Precession Imaging Sequences. J Mag Res Imag 2003; 17: 323-329'
     : '* ref: Robbers-Visser et al; Normal Biventricular Function, Volumes, and Mass in Children Aged 8 to 17 Years. J Mag Res Imag 2009; 29: 552-559' ];
   const study=(document.getElementById('rStudy')||{}).value;
