@@ -269,7 +269,7 @@
       </div>
       <div class="card">
         <h2>Generated report</h2>
-        <textarea id="rOutput" spellcheck="false" style="min-height:680px"></textarea>
+        <textarea id="rOutput" spellcheck="false" style="min-height:680px;font-family:Arial,Helvetica,sans-serif;font-size:13px"></textarea>
         <div class="btnrow"><button class="btn btn-primary" onclick="copyReport()">Copy report</button><span class="copied" id="rCopied">Copied &#10003;</span></div>
       </div>
     </div>
@@ -1353,11 +1353,11 @@ function normalFinding(id,R){
 }
 function buildFindings(R){
   return RFIND.map(f=>{
-    const st=rState[f.id];
-    if(st.mode==='omit') return '';
-    if(st.mode==='abnormal') return st.text.trim();
-    return normalFinding(f.id,R);
-  }).filter(Boolean);
+    const st=rState[f.id]; let text='';
+    if(st.mode==='abnormal') text=st.text.trim();
+    else if(st.mode!=='omit') text=normalFinding(f.id,R);
+    return {id:f.id, text};
+  }).filter(e=>e.text);
 }
 function buildImpressionR(R){
   const imp=[];
@@ -1445,7 +1445,7 @@ function refText(R){
     lines.push('** ref: Friedrich et al; Cardiovascular magnetic resonance in myocarditis: A JACC White Paper. J Am Coll Cardiol. 2009;53(17):1475-87.');
     lines.push('*** ref: Ferreira et al. Cardiovascular Magnetic Resonance in Nonischemic Myocardial Inflammation: Expert Recommendations. J Am Coll Cardiol. 2018;72(24):3158-3176.');
   }
-  return lines.join('\n');
+  return lines.join('\n\n');
 }
 /* study-type change: auto-toggle the tissue-characterization finding on for
    myocarditis / cardiomyopathy studies, off otherwise */
@@ -1550,14 +1550,16 @@ function updateLGE(){
 }
 const T1_REF='(Ref: pediatric reference ranges — Pagano et al. Radiol Cardiothorac Imaging 2020;2(4):e190234: average native T1 1008 ± 31 ms. Institutional normative data not available.)';
 const T2_REF='(Ref: normal T2 ~53 ms, range 40–64 ms. Maceira et al. J Cardiovasc Magn Reson 2015;17(Suppl 1):P12; Alsaied et al. Pediatr Cardiol 2021;42(2):269–277. Institutional normative data not available.)';
+/* "1222 34" -> "1222 +/- 34"; also accepts 1222±34, 1222+/-34, or a lone 1222 */
+function fmtPM(s){ s=(s||'').trim(); if(!s) return ''; const n=s.match(/-?\d+(?:\.\d+)?/g); if(!n) return s; return n.length>=2 ? n[0]+' +/- '+n[1] : n[0]; }
 function tissueMapBlock(){
   const t1=rvT('rT1'),cat1=rvT('rCAT1'),ecv=rvT('rECV'),hct=rvT('rHct'),t2=rvT('rT2');
   if(!t1&&!cat1&&!ecv&&!t2) return [];
   const L=['','Tissue mapping'];
-  if(t1) L.push('Native T1: '+t1+' ms');
-  if(cat1) L.push('CA T1: '+cat1+' ms');
-  if(ecv) L.push('ECV: '+ecv+' %'+(hct?' (using Hct of '+hct+'%)':''));
-  if(t2) L.push('Native T2: '+t2+' ms');
+  if(t1) L.push('Native T1: '+fmtPM(t1)+' ms');
+  if(cat1) L.push('CA T1: '+fmtPM(cat1)+' ms');
+  if(ecv) L.push('ECV: '+fmtPM(ecv)+' %'+(hct?' (using Hct of '+(hct.match(/-?\d+(?:\.\d+)?/)||[hct])[0]+'%)':''));
+  if(t2) L.push('Native T2: '+fmtPM(t2)+' ms');
   if(t1||cat1||ecv) L.push(T1_REF);
   if(t2) L.push(T2_REF);
   return L;
@@ -1597,12 +1599,17 @@ function genReport(){
   (R.lines||[]).forEach(l=>L.push(l));
   L.push('');
   L.push('CARDIAC FINDINGS:');
-  buildFindings(R).forEach(s=>L.push(s));
   L.push('');
+  const entries=buildFindings(R);
+  entries.forEach((e,i)=>{
+    if(i>0){ const glue = entries[i-1].id==='ventricles' && e.id==='tissue'; if(!glue) L.push(''); }  /* vent + tissue block flow together */
+    e.text.split('\n').forEach(x=>L.push(x));
+  });
+  L.push('');
+  const rt=refText(R); if(rt){ rt.split('\n').forEach(x=>L.push(x)); L.push(''); }
   L.push('EXTRA CARDIAC FINDINGS:');
   L.push('Not critically assessed. Imaging and interpretation directed at cardiac and thoracic vascular indications only.');
   L.push('');
-  const rt=refText(R); if(rt){ L.push(rt); L.push(''); }
   L.push('IMPRESSION:');
   buildImpressionR(R).forEach(s=>L.push('- '+s));
   out.value=L.join('\n');
@@ -1610,7 +1617,8 @@ function genReport(){
 
 async function copyReport(){
   const t=document.getElementById('rOutput').value; if(!t) return;
-  try{ await navigator.clipboard.writeText(t); }catch(e){}
+  try{ await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([reportHtml(t)],{type:'text/html'}),'text/plain':new Blob([t],{type:'text/plain'})})]); }
+  catch(e){ try{ await navigator.clipboard.writeText(t); }catch(_){} }
   const c=document.getElementById('rCopied'); c.style.display='inline'; setTimeout(()=>c.style.display='none',1600);
 }
 
