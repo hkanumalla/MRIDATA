@@ -723,7 +723,7 @@ function generate(skipAssign){
       if(qs!=null) L.push(`Total Qs: ${qsLbl}: ${r2(qs)}`);
       if(qp!=null&&qs) L.push(`Qp: Qs: ${ratio(qp,qs)}:1`);
       if(qpVein!=null&&totPA!=null){ const c=qpVein-totPA; L.push(`Total collateral flow: (RPV + LPV) - (RPA + LPA) = ${r2(c)} L/min`+(qpVein?` (~${pct(c,qpVein)}% of pulmonary flow)`:'')); }
-      else if(aoV!=null&&qs!=null){ const c=aoV-qs; L.push(`Total collateral flow: AAo - Qs = ${r2(c)} L/min`); }
+      else if(aoV!=null&&qs!=null){ const c=aoV-qs; const pf=(totPA!=null)?(totPA+c):qp; L.push(`Total collateral flow: AAo - Qs = ${r2(c)} L/min`+(pf?` (~${pct(c,pf)}% of pulmonary flow)`:'')); }
     }
   }
 
