@@ -239,6 +239,8 @@
           <option value="myocarditis">Myocarditis</option>
         </select>
       </div>
+      <div class="ctl"><label>Qs (collateral calc)</label><div class="seg" id="qsMseg"><button data-v="caval" class="on">SVC + IVC</button><button data-v="dao">SVC + dAo</button></div></div>
+      <div class="ctl"><label>Qp (collateral calc)</label><div class="seg" id="qpMseg"><button data-v="vein" class="on">Pulm veins</button><button data-v="pa">RPA+LPA+APC</button></div></div>
     </div>
     <div class="grid">
       <div class="card">
@@ -375,7 +377,7 @@ const NORM = {
 };
 
 /* ---------- UI state ---------- */
-const state = { band:'ped', sex:'F', round:'round', rf:'exact', ml:'no', bmode:'avg', qsSource:'AO' };
+const state = { band:'ped', sex:'F', round:'round', rf:'exact', ml:'no', bmode:'avg', qsSource:'AO', qsM:'caval', qpM:'vein' };
 const assign = {};       /* vessel name -> slot chosen in dropdown (persists across regenerates) */
 const assignOther = {};  /* vessel name -> custom label typed when "Other" is chosen */
 const bAssign = {};      /* unlabeled Boston block nameLine -> structure key chosen */
@@ -490,6 +492,13 @@ function parseFlows(lines){
 /* report-line destinations for a flow ROI */
 function autoSlot(name){
   const n=name.toLowerCase();
+  /* caval + pulmonary veins first (single-ventricle collateral calc) */
+  if(/\bsvc\b/.test(n)||n.includes('superior vena cava')) return 'SVC';
+  if(/\bivc\b/.test(n)||n.includes('inferior vena cava')) return 'IVC';
+  if(/\brupv\b/.test(n)||(n.includes('right upper')&&n.includes('vein'))) return 'RUPV';
+  if(/\brlpv\b/.test(n)||(n.includes('right lower')&&n.includes('vein'))) return 'RLPV';
+  if(/\blupv\b/.test(n)||(n.includes('left upper')&&n.includes('vein'))) return 'LUPV';
+  if(/\bllpv\b/.test(n)||(n.includes('left lower')&&n.includes('vein'))) return 'LLPV';
   if(n.includes('ascending')) return 'ASCAO';
   if(n.includes('descending')) return 'DAO';
   if(n.includes('tricuspid')||n==='tv') return 'TV';
@@ -582,7 +591,7 @@ function generate(skipAssign){
   function one(label,key){ const v=M[key]; if(v==null) missing.push(label); return `${label}: ${num(v)}`; }
 
   const freg=v=>{ if(!v||v.regurg==null) return ''; if(v.regurg<2) return '<2'; return state.rf==='round'? String(Math.round(v.regurg)) : num(v.regurg); };
-  const rpaT=slots.RPA?slots.RPA.total:null, lpaT=slots.LPA?slots.LPA.total:null;
+  const rpaT=slots.RPA?slots.RPA.total:null, lpaT=slots.LPA?slots.LPA.total:null, mpaT=slots.MPA?slots.MPA.total:null;
   const mpaE=slots.MPA?slots.MPA.eff:null;
   /* Qp:Qs systemic flow: if BOTH aortic root and ascending aorta flows are present, let the user pick */
   const hasAoFlow=!!(slots.AO&&slots.AO.eff!=null), hasAscFlow=!!(slots.ASCAO&&slots.ASCAO.eff!=null);
@@ -651,14 +660,19 @@ function generate(skipAssign){
     {data:'Left Pulmonary Artery',                 frac:'LPA Regurgitant Fraction (%)',              v:slots.LPA},
     {data:'Tricuspid Valve',                       frac:'Tricuspid Valve Regurgitant Fraction (%)',  v:slots.TV},
     {data:'Mitral Valve',                          frac:'Mitral Valve Regurgitant Fraction (%)',     v:slots.MV},
-    {data:'Descending Aorta (level of diaphragm)', frac:'Descending Aorta Regurgitant Fraction (%)', v:slots.DAO}
+    {data:'Descending Aorta (level of diaphragm)', frac:'Descending Aorta Regurgitant Fraction (%)', v:slots.DAO},
+    {data:'Superior vena cava',                    frac:'SVC Regurgitant Fraction (%)',              v:slots.SVC},
+    {data:'Inferior vena cava',                    frac:'IVC Regurgitant Fraction (%)',              v:slots.IVC},
+    {data:'Left upper pulmonary vein',             frac:'',                                          v:slots.LUPV},
+    {data:'Left lower pulmonary vein',             frac:'',                                          v:slots.LLPV},
+    {data:'Right upper pulmonary vein',            frac:'',                                          v:slots.RUPV},
+    {data:'Right lower pulmonary vein',            frac:'',                                          v:slots.RLPV}
   ];
 
   if(blocks.length){
     L.push('Flow Data');
     flowStructs.forEach(s=>pushIf(flowLine(s.data,s.v)));
     customFlows.forEach(c=>pushIf(flowLine(c.label,c.v)));
-    if(totQp) L.push(`Total Qp based on QpR+QpL = ${totQp}`);
     if(qpqsE) L.push(`Qp:Qs based on effective flows (MPA / ${qsLabel}) = ${qpqsE}`);
 
     if(state.ml==='yes'){
@@ -672,6 +686,40 @@ function generate(skipAssign){
     customFlows.forEach(c=>fractions.push(regLine(`${c.label} Regurgitant Fraction (%)`,c.v)));
     const fracPresent=fractions.filter(x=>x!=null);
     if(fracPresent.length){ L.push(''); L.push('Flow Fractions'); fracPresent.forEach(x=>L.push(x)); }
+
+    /* ---- single-ventricle aortopulmonary collateral (APC) flow ---- */
+    if((slots.SVC && slots.IVC) || (slots.RPA && slots.LPA)){
+      const fv=v=>v?(v.eff!=null?v.eff:v.total):null;
+      const r2=x=>x==null?null:Math.round(x*100)/100;
+      const pct=(a,b)=>(b&&b!==0)?Math.round(100*a/b):null;
+      const ratio=(a,b)=>(b&&b!==0)?(Math.round((a/b)*100)/100):null;
+      const svc=fv(slots.SVC), ivc=fv(slots.IVC), dao=fv(slots.DAO);
+      const lupv=fv(slots.LUPV),llpv=fv(slots.LLPV),rupv=fv(slots.RUPV),rlpv=fv(slots.RLPV);
+      const rpv=(rupv!=null||rlpv!=null)?((rupv||0)+(rlpv||0)):null;
+      const lpv=(lupv!=null||llpv!=null)?((lupv||0)+(llpv||0)):null;
+      const qpVein=(rpv!=null||lpv!=null)?((rpv||0)+(lpv||0)):null;
+      const lpa=fv(slots.LPA), rpa=fv(slots.RPA);
+      const totPA=(lpa!=null||rpa!=null)?((lpa||0)+(rpa||0)):null;
+      const aoV=fv(slots.ASCAO)!=null?fv(slots.ASCAO):(fv(slots.AO)!=null?fv(slots.AO):null);   /* AAo (Method 1) */
+      /* Qs: SVC+IVC or SVC+dAo (toggle) */
+      const qsCaval=(svc!=null&&ivc!=null)?(svc+ivc):null;
+      const qsDao=(svc!=null&&dao!=null)?(svc+dao):null;
+      const useDao=state.qsM==='dao'&&qsDao!=null;
+      const qs=useDao?qsDao:qsCaval;
+      const qsLbl='SVC + IVC'+(qsDao!=null?' / dAo':'');
+      /* Qp for Qp:Qs: pulmonary veins (default) or RPA+LPA+APC (toggle) */
+      const qpPA=(totPA!=null)?(totPA+((qpVein!=null)?(qpVein-totPA):(aoV!=null&&qs!=null?Math.max(0,aoV-qs):0))):null;
+      const qp=(state.qpM==='pa'&&qpPA!=null)?qpPA:(qpVein!=null?qpVein:qpPA);
+      L.push('');
+      L.push('Collateral (APC) Flow');
+      if(qpVein!=null) L.push(`Total Qp based on QpRPV+QpLPV = ${r2(qpVein)}`);
+      if(totPA!=null) L.push(`QpR + QpL = ${r2(totPA)}`);
+      if(totPA&&rpa!=null&&lpa!=null) L.push(`QpR:QpL = ${pct(rpa,totPA)}%: ${pct(lpa,totPA)}%`);
+      if(qs!=null) L.push(`Total Qs: ${qsLbl}: ${r2(qs)}`);
+      if(qp!=null&&qs) L.push(`Qp: Qs: ${ratio(qp,qs)}:1`);
+      if(qpVein!=null&&totPA!=null){ const c=qpVein-totPA; L.push(`Total collateral flow: (RPV + LPV) - (RPA + LPA) = ${r2(c)} L/min`+(qpVein?` (~${pct(c,qpVein)}% of pulmonary flow)`:'')); }
+      else if(aoV!=null&&qs!=null){ const c=aoV-qs; L.push(`Total collateral flow: AAo - Qs = ${r2(c)} L/min`); }
+    }
   }
 
   /* ---- Boston Z-Score (last section) ---- */
@@ -1216,7 +1264,7 @@ function wireSegR(id,key){
     b.onclick=()=>{ box.querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); state[key]=b.dataset.v; generate(); if(typeof genReport==='function') genReport(); };
   });
 }
-wireSegR('bandR','band'); wireSegR('sexR','sex');
+wireSegR('bandR','band'); wireSegR('sexR','sex'); wireSegR('qsMseg','qsM'); wireSegR('qpMseg','qpM');
 
 /* ---- modality (MRI vs CT) ---- */
 let rptModality='mri';
