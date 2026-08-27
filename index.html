@@ -471,10 +471,15 @@ function parseFreeText(raw){
    FLOW PARSER  (Flow Analysis blocks)
    ============================================================ */
 function parseFlows(lines){
-  const blocks=[]; let cur=null;
+  const blocks=[]; let cur=null; let inVol=false;
   const nextNum=idx=>{ let j=idx+1; while(j<lines.length&&lines[j]==='')j++; return firstNum(lines[j]); };
   for(let i=0;i<lines.length;i++){
     const line=lines[i]; if(!line) continue; const low=line.toLowerCase();
+    if(low.startsWith('flow volumes')||low.startsWith('flow fractions')){ inVol=true; cur=null; continue; }  /* skip mL volumes / fractions */
+    if(low.startsWith('flow data')){ inVol=false; cur=null; continue; }
+    /* re-parse the tool's own report line: "Name (L/min) (total/effective): 3.8/3.69" */
+    const rm=line.match(/^(.+?)\s*\(l\/min\)\s*\(total\/effective\)\s*:\s*(-?\d+(?:\.\d+)?)\s*\/\s*(-?\d+(?:\.\d+)?)/i);
+    if(rm && !inVol){ blocks.push({ name:rm[1].trim(), total:parseFloat(rm[2]), eff:parseFloat(rm[3]), regurg:null, fwd:null, net:null }); cur=null; continue; }
     if(low.startsWith('flow analysis')){
       cur={ name:line.replace(/flow analysis/i,'').trim(), total:null, eff:null, regurg:null, fwd:null, net:null };
       blocks.push(cur); continue;
