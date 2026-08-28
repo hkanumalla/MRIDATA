@@ -251,6 +251,8 @@
         <textarea id="rInput" spellcheck="false" style="min-height:150px" placeholder="Paste the LV/RV function export and the Flow Analysis blocks here" oninput="syncFromReport()"></textarea>
         <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:10px 0 4px">Vessel dimensions</div>
         <textarea id="rDims" spellcheck="false" style="min-height:90px" placeholder="Paste CVI (Line contours / MPR) or free-text: aortic root 3.2 &middot; ascending aorta 2.1 x 2.2 &middot; MPA 2.4" oninput="syncDimsFromReport()"></textarea>
+        <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:10px 0 4px">Prior report (optional &mdash; for comparison)</div>
+        <textarea id="rPrior" spellcheck="false" style="min-height:80px" placeholder="Paste the prior MRI report. I pull LV/RV volumes &amp; EF (and the study date) and add an interval-change comparison." oninput="genReport()"></textarea>
         <div class="controls" style="margin-top:12px">
           <div class="ctl"><label>Heart rate</label><input id="rHR" class="otherbox" style="min-width:70px" placeholder="bpm" oninput="genReport()"></div>
           <span id="techMRI" style="display:contents">
@@ -293,6 +295,7 @@
         <div class="ctl"><label>ECV (%)</label><input id="rECV" class="otherbox" style="min-width:90px" placeholder="e.g. 25 ± 9" oninput="genReport()"></div>
         <div class="ctl"><label>Hct (%)</label><input id="rHct" class="otherbox" style="min-width:70px" placeholder="e.g. 49" oninput="genReport()"></div>
         <div class="ctl"><label>Native T2 (ms)</label><input id="rT2" class="otherbox" style="min-width:110px" placeholder="e.g. 51 ± 8" oninput="genReport()"></div>
+        <div class="ctl"><label>Mapping interpretation</label><div class="seg" id="mapInterpSeg"><button data-v="normal" class="on" onclick="setMapInterp(this)">Normal</button><button data-v="elevated" onclick="setMapInterp(this)">Elevated</button></div></div>
       </div>
       <div style="margin-top:12px;font-size:14px"><b>Marked:</b> <span id="lgeText" style="color:var(--muted)">No segments selected — all layers reported normal.</span></div>
       <div class="btnrow"><button class="btn" onclick="clearLGE()">Clear all segments</button></div>
@@ -1412,31 +1415,46 @@ function buildFindings(R){
     return {id:f.id, text};
   }).filter(e=>e.text);
 }
+/* full, copy-ready myocarditis / cardiomyopathy impression (matches the templates) */
+function myoImpression(R){
+  const M=R.M||{}, out=[];
+  const lz=(M.LVEDVi!=null)?calcZ('LVEDVi',M.LVEDVi).z:null;
+  const rz=(M.RVEDVi!=null)?calcZ('RVEDVi',M.RVEDVi).z:null;
+  const lvN=(lz==null||Math.abs(lz)<2)&&(M.LVEF==null||M.LVEF>=55);
+  const rvN=(rz==null||Math.abs(rz)<2)&&(M.RVEF==null||M.RVEF>=48);
+  let vb;
+  if((M.LVEDVi!=null||M.RVEDVi!=null)&&lvN&&rvN) vb='Normal biventricular volumes and ejection fractions.';
+  else if(M.LVEDVi!=null||M.RVEDVi!=null) vb=fVentricles(R);
+  else vb='Normal biventricular volumes and ejection fractions.';
+  const m=fMass(R); if(m) vb+=' '+m;
+  vb+=' No regional wall motion abnormalities.';
+  out.push(vb);
+  out.push('Negative resting first-pass perfusion.');
+  const parts=[];
+  parts.push(anySel(MAPS.t2)? t2Line().replace(/^T2w with fat saturation sequences:\s*/i,'') : 'No myocardial edema on T2-weighted imaging.');
+  parts.push(anySel(MAPS.ege)? egeLine().replace(/^Early gadolinium enhancement sequences \(Ti: 600 msec\):\s*/i,'') : 'No hyperemia on early gadolinium enhancement.');
+  const t1=rvT('rT1'),ecv=rvT('rECV'),t2=rvT('rT2');
+  if(t1||ecv||t2){ const which=[t1&&'native T1', t2&&'T2', ecv&&'ECV'].filter(Boolean); parts.push((mapInterp==='elevated'?'Elevated ':'Normal ')+lgeJoin(which)+' mapping value'+(which.length>1?'s':'')+' compared to general normative data.'); }
+  out.push(parts.join(' '));
+  out.push(anySel(MAPS.lge)? lgeLine().replace(/^Late gadolinium enhancement sequences:\s*/i,'') : 'No late gadolinium enhancement to suggest fibrosis.');
+  return out;
+}
 function buildImpressionR(R){
   const imp=[];
   const M=R.M||{};
-  /* ventricle summary */
-  const lz=(M.LVEDVi!=null)?calcZ('LVEDVi',M.LVEDVi).z:null;
-  const rz=(M.RVEDVi!=null)?calcZ('RVEDVi',M.RVEDVi).z:null;
-  const lvNorm=(lz==null||Math.abs(lz)<2)&&(M.LVEF==null||M.LVEF>=55);
-  const rvNorm=(rz==null||Math.abs(rz)<2)&&(M.RVEF==null||M.RVEF>=48);
-  if(lvNorm&&rvNorm&&(M.LVEDVi!=null||M.RVEDVi!=null)) imp.push('Normal biventricular size and systolic function.');
-  else {
-    if(rState.ventricles.mode==='normal'&&(M.LVEDVi!=null||M.RVEDVi!=null)) imp.push(fVentricles(R));
-  }
-  /* tissue characterization summary for myocarditis / cardiomyopathy */
   const study=(document.getElementById('rStudy')||{}).value;
-  if((study==='myocarditis'||study==='cmp') && rState.tissue.mode==='normal'){
-    if(anySel(MAPS.t2)||anySel(MAPS.ege)||anySel(MAPS.lge)){
-      if(anySel(MAPS.t2)) imp.push(t2Line());
-      if(anySel(MAPS.ege)) imp.push(egeLine());
-      if(anySel(MAPS.lge)) imp.push(lgeLine());
-    } else {
-      imp.push('No evidence of myocardial edema, hyperemia, or late gadolinium enhancement.');
-    }
+  const isMyo=(study==='myocarditis'||study==='cmp');
+  if(isMyo){ myoImpression(R).forEach(x=>imp.push(x)); }
+  else {
+    const lz=(M.LVEDVi!=null)?calcZ('LVEDVi',M.LVEDVi).z:null;
+    const rz=(M.RVEDVi!=null)?calcZ('RVEDVi',M.RVEDVi).z:null;
+    const lvNorm=(lz==null||Math.abs(lz)<2)&&(M.LVEF==null||M.LVEF>=55);
+    const rvNorm=(rz==null||Math.abs(rz)<2)&&(M.RVEF==null||M.RVEF>=48);
+    if(lvNorm&&rvNorm&&(M.LVEDVi!=null||M.RVEDVi!=null)) imp.push('Normal biventricular size and systolic function.');
+    else if(rState.ventricles.mode==='normal'&&(M.LVEDVi!=null||M.RVEDVi!=null)) imp.push(fVentricles(R));
   }
-  /* pull each abnormal free-text finding into the impression */
-  RFIND.forEach(f=>{ const st=rState[f.id]; if(st.mode==='abnormal'&&st.text.trim()) imp.push(st.text.trim()); });
+  /* pull each abnormal free-text finding into the impression (tissue/ventricles handled above) */
+  RFIND.forEach(f=>{ if(isMyo && (f.id==='tissue'||f.id==='ventricles')) return; const st=rState[f.id]; if(st.mode==='abnormal'&&st.text.trim()) imp.push(st.text.trim()); });
   /* notable vessels */
   ['AOR','ASC','MPA','RPA','LPA'].forEach(k=>{
     const G=grpByKey(R,k); if(!G||!R.bsa) return;
@@ -1448,12 +1466,42 @@ function buildImpressionR(R){
   const grade=x=>x>=40?'severe':x>=20?'moderate':x>=10?'mild':null;
   if(S.MPA&&S.MPA.regurg!=null&&grade(S.MPA.regurg)) imp.push(cap(grade(S.MPA.regurg))+' pulmonary regurgitation (RF '+S.MPA.regurg+'%).');
   if(S.AO&&S.AO.regurg!=null&&grade(S.AO.regurg)) imp.push(cap(grade(S.AO.regurg))+' aortic regurgitation (RF '+S.AO.regurg+'%).');
-  if(R.qpqsE){ const q=parseFloat(R.qpqsE); if(!isNaN(q)) imp.push((q>=1.15?'Net left-to-right shunt':q<=0.85?'Net right-to-left shunt':'No significant shunt')+' (Qp/Qs '+R.qpqsE+').'); }
+  if(R.qpqsE){ const q=parseFloat(R.qpqsE); if(!isNaN(q) && !(isMyo && q>0.85 && q<1.15)) imp.push((q>=1.15?'Net left-to-right shunt':q<=0.85?'Net right-to-left shunt':'No significant shunt')+' (Qp/Qs '+R.qpqsE+').'); }
   if(!imp.length){
     const hasVessel=R.groups && Object.keys(R.groups).length>0;
     imp.push(hasVessel?'Normal great vessel dimensions for body surface area.':'Normal study.');
   }
   return imp;
+}
+
+/* ---- prior report comparison: paste the old report, pull LV/RV volumes & function ---- */
+function parsePriorText(txt){
+  if(!txt||!txt.trim()) return null;
+  const P={}; const g=re=>{const m=txt.match(re);return m?parseFloat(m[1]):null;};
+  P.LVEDVi=g(/lvedv[^:\n]*:\s*[\d.]+\s*\/\s*([\d.]+)/i); if(P.LVEDVi==null) P.LVEDVi=g(/lvedvi[^0-9\-]*(-?[\d.]+)/i);
+  P.RVEDVi=g(/rvedv[^:\n]*:\s*[\d.]+\s*\/\s*([\d.]+)/i); if(P.RVEDVi==null) P.RVEDVi=g(/rvedvi[^0-9\-]*(-?[\d.]+)/i);
+  P.LVEF=g(/lv\s*ef[^:\n]*:\s*([\d.]+)/i); if(P.LVEF==null) P.LVEF=g(/lvef[^0-9\-]*(-?[\d.]+)/i);
+  P.RVEF=g(/rvef[^:\n]*:\s*([\d.]+)/i); if(P.RVEF==null) P.RVEF=g(/rv\s*ef[^:\n]*:\s*([\d.]+)/i);
+  P.LVmassi=g(/lv\s*mass[^:\n]*:\s*[\d.]+\s*\/\s*([\d.]+)/i);
+  const d=txt.match(/\b(\d{1,2}\/\d{1,2}\/\d{2,4})\b/); P.date=d?d[1]:null;
+  const lge=/\b(late gadolinium|delayed enhancement|lge)\b/i.test(txt) && /\b(positive|patchy|subepicardial|mid-myocardial|enhancement in)\b/i.test(txt);
+  P.priorLGE=lge;
+  return P;
+}
+function priorData(R){
+  const P=parsePriorText(rvT('rPrior')); if(!P) return {date:null,sentence:''};
+  const M=R.M||{};
+  const vv=(lbl,c,p,u)=>(c!=null&&p!=null)?`${lbl} ${c}${u} vs ${p}${u}`:null;
+  const vol=[vv('LVEDVi',M.LVEDVi,P.LVEDVi,''),vv('RVEDVi',M.RVEDVi,P.RVEDVi,'')].filter(Boolean);
+  const ef=[vv('LVEF',M.LVEF,P.LVEF,'%'),vv('RVEF',M.RVEF,P.RVEF,'%')].filter(Boolean);
+  if(!vol.length&&!ef.length) return {date:P.date,sentence:''};
+  const within=(c,p,tol)=>(c==null||p==null)?true:Math.abs(c-p)<=tol;
+  const stable=within(M.LVEDVi,P.LVEDVi,5)&&within(M.RVEDVi,P.RVEDVi,5)&&within(M.LVEF,P.LVEF,3)&&within(M.RVEF,P.RVEF,3);
+  const segs=[];
+  if(vol.length) segs.push('biventricular volumes ('+vol.join('; ')+')');
+  if(ef.length) segs.push('ejection fractions ('+ef.join('; ')+')');
+  const s='Compared to the prior study'+(P.date?' ('+P.date+')':'')+', '+segs.join(' and ')+(stable?' are stable.':' have changed as above.');
+  return {date:P.date, sentence:s};
 }
 
 /* ---- study-type text ---- */
@@ -1526,6 +1574,8 @@ const PSAX_VIEWS=[
 ];
 const MAPS={lge:{}, t2:{}, ege:{}};            /* type -> {id -> {sub,mid}} */
 let activeMap='lge';
+let mapInterp='normal';                          /* parametric mapping interpretation: normal | elevated */
+function setMapInterp(b){ const box=b.parentElement; box.querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); mapInterp=b.dataset.v; genReport(); }
 const rvT=id=>{ const e=document.getElementById(id); return e?e.value.trim():''; };
 function lgePt(cx,cy,rad,a){ const t=a*Math.PI/180; return {x:cx+rad*Math.sin(t), y:cy-rad*Math.cos(t)}; }
 function annularSector(cx,cy,ri,ro,a1,a2){
@@ -1615,6 +1665,8 @@ function tissueMapBlock(){
   if(t2) L.push('Native T2: '+fmtPM(t2)+' ms');
   if(t1||cat1||ecv) L.push(T1_REF);
   if(t2) L.push(T2_REF);
+  const which=[t1&&'native T1', t2&&'T2', ecv&&'ECV'].filter(Boolean);
+  if(which.length) L.push('(Of note, '+lgeJoin(which)+' '+(which.length>1?'are':'is')+' '+(mapInterp==='elevated'?'elevated':'normal')+' compared to general normative data.)');
   return L;
 }
 function tissueBlock(){
@@ -1630,9 +1682,11 @@ function genReport(){
   const R=window.RPT||{lines:[]};
   const g=id=>document.getElementById(id), v=id=>{const e=g(id);return e?e.value.trim():'';};
   const L=[];
+  const PR=priorData(R);
   const hist=v('rHistory'); if(hist){ L.push('History: '+hist); L.push(''); }
   L.push('Indication for study: '+indicationText(g('rStudy').value));
   L.push('');
+  if(PR.date){ L.push('Comparison: '+PR.date); L.push(''); }
   L.push('Technique:');
   if(rptModality==='ct'){
     let ln='ECG-gated cardiac CT angiography of the chest with intravenous iodinated contrast';
@@ -1658,6 +1712,7 @@ function genReport(){
     if(i>0){ const glue = entries[i-1].id==='ventricles' && e.id==='tissue'; if(!glue) L.push(''); }  /* vent + tissue block flow together */
     e.text.split('\n').forEach(x=>L.push(x));
   });
+  if(PR.sentence){ L.push(''); L.push(PR.sentence); }
   L.push('');
   const rt=refText(R); if(rt){ rt.split('\n').forEach(x=>L.push(x)); L.push(''); }
   L.push('EXTRA CARDIAC FINDINGS:');
@@ -1665,6 +1720,7 @@ function genReport(){
   L.push('');
   L.push('IMPRESSION:');
   buildImpressionR(R).forEach(s=>L.push('- '+s));
+  if(PR.sentence) L.push('- '+PR.sentence);
   out.value=L.join('\n');
 }
 
