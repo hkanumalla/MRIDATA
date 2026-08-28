@@ -237,10 +237,13 @@
           <option value="aorta">Aorta / aortic root</option>
           <option value="bicuspid">Bicuspid aortic valve</option>
           <option value="myocarditis">Myocarditis</option>
+          <option value="fontan">Single ventricle / Fontan</option>
         </select>
       </div>
-      <div class="ctl"><label>Qs (collateral calc)</label><div class="seg" id="qsMseg"><button data-v="caval" class="on">SVC + IVC</button><button data-v="dao">SVC + dAo</button></div></div>
-      <div class="ctl"><label>Qp (collateral calc)</label><div class="seg" id="qpMseg"><button data-v="vein" class="on">Pulm veins</button><button data-v="pa">RPA+LPA+APC</button></div></div>
+      <span id="collCtl" style="display:none">
+        <div class="ctl"><label>Qs (collateral calc)</label><div class="seg" id="qsMseg"><button data-v="caval" class="on">SVC + IVC</button><button data-v="dao">SVC + dAo</button></div></div>
+        <div class="ctl"><label>Qp (collateral calc)</label><div class="seg" id="qpMseg"><button data-v="vein" class="on">Pulm veins</button><button data-v="pa">RPA+LPA+APC</button></div></div>
+      </span>
     </div>
     <div class="grid">
       <div class="card">
@@ -695,8 +698,8 @@ function generate(skipAssign){
     const fracPresent=fractions.filter(x=>x!=null);
     if(fracPresent.length){ L.push(''); L.push('Flow Fractions'); fracPresent.forEach(x=>L.push(x)); }
 
-    /* ---- single-ventricle aortopulmonary collateral (APC) flow ---- */
-    if((slots.SVC && slots.IVC) || (slots.RPA && slots.LPA)){
+    /* ---- single-ventricle aortopulmonary collateral (APC) flow — only for the Fontan study type ---- */
+    if(((document.getElementById('rStudy')||{}).value==='fontan') && ((slots.SVC && slots.IVC) || (slots.RPA && slots.LPA))){
       const fv=v=>v?(v.eff!=null?v.eff:v.total):null;
       const r2=x=>x==null?null:Math.round(x*100)/100;
       const pct=(a,b)=>(b&&b!==0)?Math.round(100*a/b):null;
@@ -1418,25 +1421,17 @@ function buildFindings(R){
 /* full, copy-ready myocarditis / cardiomyopathy impression (matches the templates) */
 function myoImpression(R){
   const M=R.M||{}, out=[];
-  const lz=(M.LVEDVi!=null)?calcZ('LVEDVi',M.LVEDVi).z:null;
-  const rz=(M.RVEDVi!=null)?calcZ('RVEDVi',M.RVEDVi).z:null;
-  const lvN=(lz==null||Math.abs(lz)<2)&&(M.LVEF==null||M.LVEF>=55);
-  const rvN=(rz==null||Math.abs(rz)<2)&&(M.RVEF==null||M.RVEF>=48);
-  let vb;
-  if((M.LVEDVi!=null||M.RVEDVi!=null)&&lvN&&rvN) vb='Normal biventricular volumes and ejection fractions.';
-  else if(M.LVEDVi!=null||M.RVEDVi!=null) vb=fVentricles(R);
-  else vb='Normal biventricular volumes and ejection fractions.';
+  /* always report the indexed volume + z for LV and RV (as in the prior templates) */
+  let vb=(M.LVEDVi!=null||M.RVEDVi!=null)?fVentricles(R):'Normal biventricular volumes and ejection fractions.';
   const m=fMass(R); if(m) vb+=' '+m;
   vb+=' No regional wall motion abnormalities.';
   out.push(vb);
-  out.push('Negative resting first-pass perfusion.');
-  const parts=[];
-  parts.push(anySel(MAPS.t2)? t2Line().replace(/^T2w with fat saturation sequences:\s*/i,'') : 'No myocardial edema on T2-weighted imaging.');
-  parts.push(anySel(MAPS.ege)? egeLine().replace(/^Early gadolinium enhancement sequences \(Ti: 600 msec\):\s*/i,'') : 'No hyperemia on early gadolinium enhancement.');
+  out.push(anySel(MAPS.t2)? ('Increased signal intensity suggestive of edema on T2-weighted imaging in the '+levelInline(MAPS.t2)+'.') : 'No evidence of obvious fibrofatty infiltration or edema on T1/T2 images.');
   const t1=rvT('rT1'),ecv=rvT('rECV'),t2=rvT('rT2');
-  if(t1||ecv||t2){ const which=[t1&&'native T1', t2&&'T2', ecv&&'ECV'].filter(Boolean); parts.push((mapInterp==='elevated'?'Elevated ':'Normal ')+lgeJoin(which)+' mapping value'+(which.length>1?'s':'')+' compared to general normative data.'); }
-  out.push(parts.join(' '));
-  out.push(anySel(MAPS.lge)? lgeLine().replace(/^Late gadolinium enhancement sequences:\s*/i,'') : 'No late gadolinium enhancement to suggest fibrosis.');
+  if(t1||ecv||t2){ const which=[t1&&'native T1', t2&&'T2', ecv&&'ECV'].filter(Boolean); out.push((mapInterp==='elevated'?'Elevated ':'Normal ')+lgeJoin(which)+' mapping value'+(which.length>1?'s':'')+' compared to general normative data.'); }
+  out.push('Resting first pass perfusion segments: no deficits.');
+  out.push(anySel(MAPS.ege)? ('Increased signal intensity suggestive of hyperemia in the '+levelInline(MAPS.ege)+' on early gadolinium sequences.') : 'No areas of obvious increased signal intensity suggestive of hyperemia in early gadolinium sequences.');
+  out.push(anySel(MAPS.lge)? ('Positive delayed enhancement in the '+levelInline(MAPS.lge)+'.') : 'No areas of increased signal intensity suggestive of fibrosis in delayed gadolinium sequences.');
   return out;
 }
 function buildImpressionR(R){
@@ -1446,12 +1441,8 @@ function buildImpressionR(R){
   const isMyo=(study==='myocarditis'||study==='cmp');
   if(isMyo){ myoImpression(R).forEach(x=>imp.push(x)); }
   else {
-    const lz=(M.LVEDVi!=null)?calcZ('LVEDVi',M.LVEDVi).z:null;
-    const rz=(M.RVEDVi!=null)?calcZ('RVEDVi',M.RVEDVi).z:null;
-    const lvNorm=(lz==null||Math.abs(lz)<2)&&(M.LVEF==null||M.LVEF>=55);
-    const rvNorm=(rz==null||Math.abs(rz)<2)&&(M.RVEF==null||M.RVEF>=48);
-    if(lvNorm&&rvNorm&&(M.LVEDVi!=null||M.RVEDVi!=null)) imp.push('Normal biventricular size and systolic function.');
-    else if(rState.ventricles.mode==='normal'&&(M.LVEDVi!=null||M.RVEDVi!=null)) imp.push(fVentricles(R));
+    /* always report the indexed volume + z for LV and RV */
+    if((M.LVEDVi!=null||M.RVEDVi!=null)&&rState.ventricles.mode!=='abnormal'){ const m=fMass(R); imp.push(fVentricles(R)+' No regional wall motion abnormalities.'+(m?' '+m:'')); }
   }
   /* pull each abnormal free-text finding into the impression (tissue/ventricles handled above) */
   RFIND.forEach(f=>{ if(isMyo && (f.id==='tissue'||f.id==='ventricles')) return; const st=rState[f.id]; if(st.mode==='abnormal'&&st.text.trim()) imp.push(st.text.trim()); });
@@ -1524,10 +1515,13 @@ function indicationText(t){
     cmp:'Assessment of ventricular size and function with tissue characterization for cardiomyopathy.',
     aorta:'Assessment of the aortic root and thoracic aorta.',
     bicuspid:'Evaluation of bicuspid aortic valve with assessment of the aortic root and ascending aorta.',
-    myocarditis:'Assessment of ventricular function with tissue characterization for myocarditis.'
+    myocarditis:'Assessment of ventricular function with tissue characterization for myocarditis.',
+    fontan:'Assessment of single ventricle / Fontan physiology — ventricular size and function, the Fontan pathway and branch pulmonary arteries, systemic and pulmonary venous pathways, and quantification of Qp/Qs and aortopulmonary collateral flow.'
   })[t] || 'Assessment of ventricular size and systolic function.';
 }
 function techniqueSequences(t){
+  if(t==='fontan')
+    return 'Steady-state free precession cine imaging in standard short- and long-axis planes; phase-contrast flow imaging of the aorta, branch pulmonary arteries, SVC, IVC and pulmonary veins for Qp/Qs and aortopulmonary collateral quantification; gadolinium-enhanced angiography of the Fontan pathway and pulmonary arteries; late gadolinium enhancement imaging.';
   if(t==='myocarditis'||t==='cmp')
     return '3-plane localizers; Axial, sagittal and coronal non-gated true FISP sequences; ECG-gated, breath-hold, Axial, 2-chamber, 4-chamber, short axis, LVOT, RVOT and short axis of aortic root cine SSFP sequences; ECG-gated, breath-hold, DIR T1w with and without fat saturation and T2w with fat saturation short axis sequences; ECG-gated, breath-through phase-velocity imaging of aortic root, ascending aorta and main pulmonary artery; Resting first-pass perfusion sequences (Gadolinium — Gadovist); Early gadolinium enhancement sequences (Ti: 600 msec) in short axis planes; Myocardial delayed enhancement imaging in ventricular 4-chamber, 2-chamber, LVOT, RVOT and short axis planes; T1 mapping (pre and post contrast) in short axis planes; T2 mapping.';
   return 'Steady-state free precession cine imaging in standard short- and long-axis planes; phase-contrast flow imaging of the great vessels; gadolinium-enhanced angiography. Late gadolinium enhancement imaging.';
@@ -1552,10 +1546,11 @@ function refText(R){
    myocarditis / cardiomyopathy studies, off otherwise */
 function studyChanged(){
   const t=document.getElementById('rStudy').value;
+  const cc=document.getElementById('collCtl'); if(cc) cc.style.display=(t==='fontan')?'contents':'none';
   const show=(t==='myocarditis'||t==='cmp');
   const panel=document.getElementById('lgePanel'); if(panel) panel.style.display=show?'':'none';
   if(show){ buildLGE(); updateLGE(); }        /* updateLGE sets tissue text + re-renders */
-  else { rState.tissue.mode='omit'; rState.tissue.text=''; renderFindRows(); genReport(); }
+  else { rState.tissue.mode='omit'; rState.tissue.text=''; renderFindRows(); generate(); genReport(); }
 }
 
 /* ---- interactive AHA 17-segment LGE map, linked across views ---- */
@@ -1642,23 +1637,32 @@ function lgeJoin(a){ return a.length<=1?(a[0]||''):a.length===2?a[0]+' and '+a[1
 function mapDesc(map){ const sub=[],mid=[]; Object.keys(map).forEach(id=>{const s=map[id]; if(s.sub)sub.push(+id); if(s.mid)mid.push(+id);}); sub.sort((a,b)=>a-b); mid.sort((a,b)=>a-b); return {sub:sub.map(i=>SEG17[i]), mid:mid.map(i=>SEG17[i])}; }
 function anySel(map){ return Object.keys(map).length>0; }
 function layerPhrase(d){ const p=[]; if(d.sub.length) p.push('the subepicardial layer of the '+lgeJoin(d.sub)+' segment'+(d.sub.length>1?'s':'')); if(d.mid.length) p.push('the mid-myocardial layer of the '+lgeJoin(d.mid)+' segment'+(d.mid.length>1?'s':'')); return p.join(' and '); }
-function lgeLine(){ return anySel(MAPS.lge)?('Late gadolinium enhancement sequences: Positive late gadolinium enhancement in '+layerPhrase(mapDesc(MAPS.lge))+'.'):'Late gadolinium enhancement sequences: Negative myocardial delayed enhancement.'; }
-function t2Line(){ return anySel(MAPS.t2)?('T2w with fat saturation sequences: Increased signal intensity in '+layerPhrase(mapDesc(MAPS.t2))+' — consistent with edema.'):'T2w with fat saturation sequences: No obvious increased signal intensity seen.'; }
-function egeLine(){ return anySel(MAPS.ege)?('Early gadolinium enhancement sequences (Ti: 600 msec): Increased signal intensity in '+layerPhrase(mapDesc(MAPS.ege))+' — consistent with hyperemia.'):'Early gadolinium enhancement sequences (Ti: 600 msec): No evidence of hyperemia.'; }
+/* group a map's selected segments by level (basal/mid/apical) and layer for the by-level report style */
+const WALLRANK={'anterior':0,'anterolateral':1,'inferolateral':2,'inferior':3,'inferoseptal':4,'anteroseptal':5,'lateral':1.5,'septal':4.5,'apex':9};
+function sortWalls(a){ return a.slice().sort((x,y)=>((WALLRANK[x]!=null?WALLRANK[x]:8)-(WALLRANK[y]!=null?WALLRANK[y]:8))); }
+function wallsPhrase(list){ const w=sortWalls(list); return 'the '+lgeJoin(w)+' wall'+(w.length>1?'s':''); }
+function mapByLevel(map){ const lv={basal:{sub:[],mid:[]},mid:{sub:[],mid:[]},apical:{sub:[],mid:[]}};
+  Object.keys(map).forEach(id=>{ const s=map[id], nm=SEG17[id], parts=nm.split(' '); let lvl=parts[0], wall=parts.slice(1).join(' '); if(nm==='apex'){lvl='apical';wall='apex';} if(!lv[lvl])return; if(s.sub)lv[lvl].sub.push(wall); if(s.mid)lv[lvl].mid.push(wall); });
+  return lv; }
+function levelInline(map){ const bl=mapByLevel(map), segs=[]; ['basal','mid','apical'].forEach(lvl=>{ const L=bl[lvl], p=[]; if(L.sub.length)p.push('subepicardial layer of '+wallsPhrase(L.sub)); if(L.mid.length)p.push('mid-myocardial layer of '+wallsPhrase(L.mid)); if(p.length) segs.push(p.join(' and ')+' at the '+lvl+' level'); }); return lgeJoin(segs); }
+function lgeLevelLine(L){ if(!L.sub.length&&!L.mid.length) return 'No delayed enhancement seen'; const p=[]; if(L.sub.length)p.push('subepicardial region of '+wallsPhrase(L.sub)); if(L.mid.length)p.push('mid-myocardial region of '+wallsPhrase(L.mid)); return 'Positive delayed enhancement seen in the '+p.join(' and '); }
+function lgeBlock(){ if(!anySel(MAPS.lge)) return ['No areas of increased signal intensity suggestive of fibrosis in delayed gadolinium sequences.']; const bl=mapByLevel(MAPS.lge); return ['Late gadolinium enhancement sequences:','Basal: '+lgeLevelLine(bl.basal),'Mid: '+lgeLevelLine(bl.mid),'Apical: '+lgeLevelLine(bl.apical),'Right Ventricle: No evidence of delayed enhancement seen.']; }
+function t2Line(){ return anySel(MAPS.t2)?('T2 w with fat saturation: increased signal intensity in the '+levelInline(MAPS.t2)+', consistent with edema.'):'T2 w with fat saturation: normal signal intensity.'; }
+function egeLine(){ return anySel(MAPS.ege)?('Increased signal intensity suggestive of hyperemia in the '+levelInline(MAPS.ege)+' on early gadolinium sequences.'):'No areas of obvious increased signal intensity suggestive of hyperemia in early gadolinium sequences.'; }
 function updateLGE(){
   const el=document.getElementById('lgeText');
   if(el){ const parts=[]; if(anySel(MAPS.lge))parts.push('LGE: '+layerPhrase(mapDesc(MAPS.lge))); if(anySel(MAPS.t2))parts.push('T2 edema: '+layerPhrase(mapDesc(MAPS.t2))); if(anySel(MAPS.ege))parts.push('EGE: '+layerPhrase(mapDesc(MAPS.ege))); el.textContent=parts.length?parts.join('  ·  '):'No segments selected — all layers reported normal.'; }
   const t=document.getElementById('rStudy').value; rState.tissue.mode=(t==='myocarditis'||t==='cmp')?'normal':'omit'; rState.tissue.text='';
   renderFindRows(); genReport();
 }
-const T1_REF='(Ref: pediatric reference ranges — Pagano et al. Radiol Cardiothorac Imaging 2020;2(4):e190234: average native T1 1008 ± 31 ms. Institutional normative data not available.)';
-const T2_REF='(Ref: normal T2 ~53 ms, range 40–64 ms. Maceira et al. J Cardiovasc Magn Reson 2015;17(Suppl 1):P12; Alsaied et al. Pediatr Cardiol 2021;42(2):269–277. Institutional normative data not available.)';
+const T1_REF='(Ref: Normative myocardial native T1 and extracellular volume fraction (ECV) data are reported for healthy children and adolescents at 1.5 T, with average native T1 time of 1008 msec +/- 31 (standard deviation) and ECV of 20.8% +/- 2.4, with nonsignificantly increased values in girls. Pagano JJ et al. Normative Data for Myocardial Native T1 and Extracellular Volume Fraction in Children. Radiol Cardiothorac Imaging. 2020 Aug 13;2(4):e190234. Of note, institutional normative data is not available.)';
+const T2_REF='(Ref: Normal T2 value is typically considered to be around 53 milliseconds with a range of 40-64 milliseconds, indicating the amount of water content within the myocardial tissue. Maceira, Alicia M et al. Reference values for regional and global myocardial T2 mapping with cardiovascular magnetic resonance at 1.5T and 3T. Journal of Cardiovascular Magnetic Resonance vol. 17, Suppl 1 P12. 3 Feb. 2015. Alsaied, Tarek et al. Pediatric Myocardial T1 and T2 Value Associations with Age and Heart Rate at 1.5 T. Pediatric Cardiology vol. 42,2 (2021): 269-277. Of note, institutional normative data is not available.)';
 /* "1222 34" -> "1222 +/- 34"; also accepts 1222±34, 1222+/-34, or a lone 1222 */
 function fmtPM(s){ s=(s||'').trim(); if(!s) return ''; const n=s.match(/-?\d+(?:\.\d+)?/g); if(!n) return s; return n.length>=2 ? n[0]+' +/- '+n[1] : n[0]; }
 function tissueMapBlock(){
   const t1=rvT('rT1'),cat1=rvT('rCAT1'),ecv=rvT('rECV'),hct=rvT('rHct'),t2=rvT('rT2');
   if(!t1&&!cat1&&!ecv&&!t2) return [];
-  const L=['','Tissue mapping'];
+  const L=['','Tissue Mapping'];
   if(t1) L.push('Native T1: '+fmtPM(t1)+' ms');
   if(cat1) L.push('CA T1: '+fmtPM(cat1)+' ms');
   if(ecv) L.push('ECV: '+fmtPM(ecv)+' %'+(hct?' (using Hct of '+(hct.match(/-?\d+(?:\.\d+)?/)||[hct])[0]+'%)':''));
@@ -1670,7 +1674,14 @@ function tissueMapBlock(){
   return L;
 }
 function tissueBlock(){
-  const L=['T1w with and without fat saturation sequences: No evidence of fibrofatty infiltration.', t2Line(), 'Resting first pass perfusion sequences: No perfusion deficits.', egeLine(), lgeLine()];
+  const L=[];
+  L.push('T1 w without fat saturation sequences: normal signal intensity.');
+  L.push('T1w with fat saturation: normal signal intensity.');
+  L.push(t2Line());
+  L.push(anySel(MAPS.t2)?'No evidence of obvious fibrofatty infiltration; edema as described above.':'No evidence of obvious fibrofatty infiltration or edema based on above.');
+  L.push('Resting first pass perfusion segments: no deficits.');
+  L.push(egeLine());
+  lgeBlock().forEach(x=>L.push(x));
   tissueMapBlock().forEach(l=>L.push(l));
   return L.join('\n');
 }
